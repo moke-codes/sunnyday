@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+:root.dark {
+  color-scheme: dark;
+}
+
+body {
+  @apply min-h-screen bg-surface-50 text-slate-900 antialiased dark:bg-surface-900 dark:text-slate-100;
+}
+
+#app {
+  @apply min-h-screen;
+}
