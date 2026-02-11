@@ -11,51 +11,63 @@
       <div class="grid gap-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-3">
         <label class="text-sm md:col-span-2">
           Search user
-          <div class="mt-1 flex gap-2">
+          <div ref="searchContainer" class="relative mt-1">
             <input
               v-model="actorQuery"
               class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
               placeholder="name or handle"
-              @keyup.enter="runActorSearch"
+              @focus="openDropdown"
+              @keydown.down.prevent="moveHighlight(1)"
+              @keydown.up.prevent="moveHighlight(-1)"
+              @keydown.enter.prevent="selectHighlightedActor"
+              @keydown.esc.prevent="closeDropdown"
             />
-            <button
-              class="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700"
-              :disabled="tools.loading"
-              @click="runActorSearch"
+
+            <div
+              v-if="showActorDropdown"
+              class="absolute z-20 mt-1 max-h-80 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
             >
-              Search
-            </button>
+              <div v-if="isSearchingActors" class="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+                Searching...
+              </div>
+              <button
+                v-for="actor in tools.actorSearchResults"
+                :key="actor.did"
+                type="button"
+                class="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
+                :class="{
+                  'bg-slate-50 dark:bg-slate-800': actor.did === highlightedActorDid,
+                }"
+                @click="selectActor(actor)"
+                @mouseenter="highlightedIndex = tools.actorSearchResults.findIndex((item) => item.did === actor.did)"
+              >
+                <img
+                  v-if="actor.avatar"
+                  :src="actor.avatar"
+                  :alt="actor.displayName || actor.handle"
+                  class="h-8 w-8 rounded-full object-cover"
+                  loading="lazy"
+                />
+                <div
+                  v-else
+                  class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-100"
+                >
+                  {{ initials(actor.displayName || actor.handle) }}
+                </div>
+                <div class="min-w-0">
+                  <p class="truncate font-medium">{{ actor.displayName || actor.handle }}</p>
+                  <p class="truncate text-xs text-slate-500">@{{ actor.handle }}</p>
+                </div>
+              </button>
+              <div
+                v-if="!isSearchingActors && actorQuery.trim().length >= 2 && !tools.actorSearchResults.length"
+                class="px-3 py-2 text-xs text-slate-500 dark:text-slate-400"
+              >
+                No users found.
+              </div>
+            </div>
           </div>
         </label>
-      </div>
-
-      <div v-if="tools.actorSearchResults.length" class="space-y-2 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-        <p class="text-sm font-medium">Matching users</p>
-        <button
-          v-for="actor in tools.actorSearchResults"
-          :key="actor.did"
-          type="button"
-          class="flex w-full items-center gap-3 rounded-md border border-slate-200 px-3 py-2 text-left hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
-          @click="selectActor(actor)"
-        >
-          <img
-            v-if="actor.avatar"
-            :src="actor.avatar"
-            :alt="actor.displayName || actor.handle"
-            class="h-8 w-8 rounded-full object-cover"
-            loading="lazy"
-          />
-          <div
-            v-else
-            class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-100"
-          >
-            {{ initials(actor.displayName || actor.handle) }}
-          </div>
-          <div class="min-w-0">
-            <p class="truncate font-medium">{{ actor.displayName || actor.handle }}</p>
-            <p class="truncate text-xs text-slate-500">@{{ actor.handle }}</p>
-          </div>
-        </button>
       </div>
 
       <div class="grid gap-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-3">
@@ -123,7 +135,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import MemberPicker from '@/components/MemberPicker.vue';
 import { useToolsStore } from '@/stores/tools';
@@ -132,9 +144,14 @@ import type { ActorSearchResult } from '@/types/bluesky';
 const tools = useToolsStore();
 
 const actorQuery = ref('');
+const isActorDropdownOpen = ref(false);
+const isSearchingActors = ref(false);
+const highlightedIndex = ref(-1);
+const searchContainer = ref<HTMLElement | null>(null);
 const selectedStarterPackUri = ref('');
 const selectedMemberDids = ref<string[]>([]);
 const referenceError = ref('');
+let actorSearchTimer: number | undefined;
 
 const destinationMode = ref<'new' | 'existing'>('existing');
 const existingListUri = ref('');
@@ -146,38 +163,58 @@ const selectedMembers = computed(() => {
   const didSet = new Set(selectedMemberDids.value);
   return tools.members.filter((member) => didSet.has(member.did));
 });
+const showActorDropdown = computed(() => {
+  if (!isActorDropdownOpen.value) return false;
+  if (isSearchingActors.value) return true;
+  return actorQuery.value.trim().length >= 2;
+});
+const highlightedActorDid = computed(() => {
+  const actor = tools.actorSearchResults[highlightedIndex.value];
+  return actor?.did;
+});
 
 onMounted(async () => {
   if (!tools.lists.length) await tools.refreshLists();
+  document.addEventListener('click', onDocumentClick);
+});
+onBeforeUnmount(() => {
+  if (actorSearchTimer) window.clearTimeout(actorSearchTimer);
+  document.removeEventListener('click', onDocumentClick);
 });
 
-async function runActorSearch() {
+watch(actorQuery, (value) => {
+  const query = value.trim();
   referenceError.value = '';
-  selectedStarterPackUri.value = '';
-  tools.members = [];
 
-  if (!actorQuery.value.trim()) {
+  if (actorSearchTimer) window.clearTimeout(actorSearchTimer);
+  if (query.length < 2) {
     tools.actorSearchResults = [];
-    tools.starterPacks = [];
+    isSearchingActors.value = false;
+    highlightedIndex.value = -1;
     return;
   }
 
-  try {
-    await tools.searchActors(actorQuery.value);
-    if (tools.actorSearchResults.length === 1) {
-      await selectActor(tools.actorSearchResults[0]);
+  isSearchingActors.value = true;
+  actorSearchTimer = window.setTimeout(async () => {
+    try {
+      await tools.searchActors(query);
+      highlightedIndex.value = tools.actorSearchResults.length ? 0 : -1;
+    } catch (error) {
+      referenceError.value = (error as Error).message || 'Could not search users.';
+    } finally {
+      isSearchingActors.value = false;
     }
-  } catch (error) {
-    referenceError.value = (error as Error).message || 'Could not search users.';
-  }
-}
+  }, 300);
+});
 
 async function selectActor(actor: ActorSearchResult) {
   referenceError.value = '';
   actorQuery.value = actor.handle;
+  isActorDropdownOpen.value = false;
   selectedStarterPackUri.value = '';
   selectedMemberDids.value = [];
   tools.members = [];
+  highlightedIndex.value = -1;
 
   try {
     await tools.loadStarterPacksForActor(actor.did);
@@ -215,5 +252,47 @@ async function applyMembers() {
 
 function initials(name: string) {
   return name.trim().charAt(0).toUpperCase() || '?';
+}
+
+function openDropdown() {
+  isActorDropdownOpen.value = true;
+}
+
+function closeDropdown() {
+  isActorDropdownOpen.value = false;
+}
+
+function moveHighlight(step: number) {
+  if (!isActorDropdownOpen.value) {
+    isActorDropdownOpen.value = true;
+  }
+  const count = tools.actorSearchResults.length;
+  if (!count) return;
+
+  const next = highlightedIndex.value + step;
+  if (next < 0) {
+    highlightedIndex.value = count - 1;
+    return;
+  }
+  if (next >= count) {
+    highlightedIndex.value = 0;
+    return;
+  }
+  highlightedIndex.value = next;
+}
+
+async function selectHighlightedActor() {
+  if (!showActorDropdown.value) return;
+  const actor = tools.actorSearchResults[highlightedIndex.value];
+  if (!actor) return;
+  await selectActor(actor);
+}
+
+function onDocumentClick(event: MouseEvent) {
+  const container = searchContainer.value;
+  if (!container) return;
+  if (!container.contains(event.target as Node)) {
+    closeDropdown();
+  }
 }
 </script>
