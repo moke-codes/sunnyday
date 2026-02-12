@@ -41,8 +41,9 @@ build/Release
 node_modules/
 jspm_packages/
 
-# Feed generator persisted data
+# Feed generator persisted data and PID
 feedgen/data/
+feedgen/feedgen.pid
 
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
