@@ -11,7 +11,18 @@
 }
 
 body {
-  @apply min-h-screen bg-surface-50 text-slate-900 antialiased dark:bg-surface-900 dark:text-slate-100;
+  @apply min-h-screen text-slate-900 antialiased dark:text-slate-100;
+  background:
+    radial-gradient(circle at 10% -10%, rgba(251, 191, 36, 0.25), transparent 35%),
+    radial-gradient(circle at 90% 0%, rgba(56, 189, 248, 0.2), transparent 30%),
+    linear-gradient(180deg, #fff7ed 0%, #fffbeb 45%, #ffffff 100%);
+}
+
+.dark body {
+  background:
+    radial-gradient(circle at 15% -10%, rgba(245, 158, 11, 0.15), transparent 35%),
+    radial-gradient(circle at 85% 5%, rgba(14, 165, 233, 0.12), transparent 30%),
+    linear-gradient(180deg, #0f172a 0%, #111827 100%);
 }
 
 #app {
