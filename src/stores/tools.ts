@@ -375,11 +375,20 @@ export const useToolsStore = defineStore('tools', () => {
       });
       const publishedAt = new Date().toISOString();
 
+      let publishError: string | null = null;
       if (import.meta.env.VITE_FEEDGEN_URL && import.meta.env.VITE_FEEDGEN_SECRET) {
-        await pushFeedContents(
-          published.uri,
-          feed.draftPosts.map((p) => p.uri),
-        );
+        try {
+          await pushFeedContents(
+            published.uri,
+            feed.draftPosts.map((p) => p.uri),
+          );
+        } catch (err) {
+          publishError = (err as Error).message ?? 'Failed to push feed contents to feed generator.';
+          throw new Error(publishError);
+        }
+      } else {
+        publishError =
+          'Feed contents were not pushed (set VITE_FEEDGEN_URL and VITE_FEEDGEN_SECRET). The feed may appear empty until you configure and re-publish.';
       }
 
       curatedFeeds.value = curatedFeeds.value.map((item) => {
@@ -394,7 +403,7 @@ export const useToolsStore = defineStore('tools', () => {
           lastPublishedAt: publishedAt,
           blueskyFeedUri: published.uri,
           blueskyFeedRkey: published.rkey,
-          lastPublishError: null,
+          lastPublishError: publishError,
           updatedAt: publishedAt,
         };
       });
@@ -434,6 +443,26 @@ export const useToolsStore = defineStore('tools', () => {
     });
   }
 
+  async function pushActiveFeedContentsOnly() {
+    const feed = activeFeed.value;
+    if (!feed?.blueskyFeedUri) {
+      throw new Error('Publish the feed to Bluesky first so it has a feed URI.');
+    }
+    loading.value = true;
+    try {
+      await pushFeedContents(
+        feed.blueskyFeedUri,
+        feed.draftPosts.map((p) => p.uri),
+      );
+      curatedFeeds.value = curatedFeeds.value.map((item) => {
+        if (item.id !== feed.id) return item;
+        return { ...item, lastPublishError: null, updatedAt: new Date().toISOString() };
+      });
+    } finally {
+      loading.value = false;
+    }
+  }
+
   return {
     lists,
     starterPacks,
@@ -467,6 +496,7 @@ export const useToolsStore = defineStore('tools', () => {
     removePostFromActiveFeed,
     publishActiveFeed,
     publishActiveFeedToBluesky,
+    pushActiveFeedContentsOnly,
     discardActiveFeedChanges,
   };
 });

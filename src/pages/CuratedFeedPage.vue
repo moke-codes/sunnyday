@@ -104,13 +104,21 @@
               <p v-if="tools.activeFeed.lastPublishError" class="mt-1 text-xs text-rose-600">
                 {{ tools.activeFeed.lastPublishError }}
               </p>
-              <div class="mt-2 flex gap-2">
+              <div class="mt-2 flex flex-wrap gap-2">
                 <button
                   class="rounded-md border border-emerald-500 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-700 dark:text-emerald-300"
                   :disabled="!tools.activeFeed.isDirty || tools.loading"
                   @click="publishActiveFeed"
                 >
                   {{ tools.loading ? 'Publishing...' : 'Publish' }}
+                </button>
+                <button
+                  class="rounded-md border border-sky-500 px-3 py-2 text-xs text-sky-700 dark:border-sky-700 dark:text-sky-300"
+                  :disabled="!tools.activeFeed.blueskyFeedUri || tools.loading"
+                  title="Push current post list to the feed generator without updating the Bluesky record"
+                  @click="publishContentOnly"
+                >
+                  {{ tools.loading ? 'Pushing...' : 'Publish Content-only' }}
                 </button>
                 <button
                   class="rounded-md border border-slate-300 px-3 py-2 text-xs dark:border-slate-700"
@@ -510,6 +518,23 @@ function publishActiveFeed() {
     return;
   }
   uiError.value = 'Publish is unavailable in this runtime. Refresh the page.';
+}
+
+async function publishContentOnly() {
+  if (!tools.activeFeed) return;
+  uiError.value = '';
+  const pushFn = (tools as any).pushActiveFeedContentsOnly as
+    | (() => Promise<void>)
+    | undefined;
+  if (typeof pushFn !== 'function') {
+    uiError.value = 'Publish Content-only is unavailable. Refresh the page.';
+    return;
+  }
+  try {
+    await pushFn();
+  } catch (error) {
+    uiError.value = (error as Error).message || 'Failed to push feed contents.';
+  }
 }
 
 function discardChanges() {
