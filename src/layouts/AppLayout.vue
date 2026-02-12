@@ -31,7 +31,7 @@
                 : 'text-amber-900 hover:bg-amber-200/70 hover:text-amber-950 dark:text-amber-300 dark:hover:bg-slate-800 dark:hover:text-amber-200'
             "
           >
-            List -> Starter Pack
+            List → Starter Pack
           </span>
         </RouterLink>
         <RouterLink v-slot="{ isActive }" to="/tools/starter-pack-to-list">
@@ -43,7 +43,7 @@
                 : 'text-amber-900 hover:bg-amber-200/70 hover:text-amber-950 dark:text-amber-300 dark:hover:bg-slate-800 dark:hover:text-amber-200'
             "
           >
-            Starter Pack -> List
+            Starter Pack → List
           </span>
         </RouterLink>
         <RouterLink v-slot="{ isActive }" to="/tools/curated-feed">
