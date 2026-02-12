@@ -11,11 +11,11 @@
 }
 
 body {
-  @apply min-h-screen text-slate-900 antialiased dark:text-slate-100;
+  @apply min-h-screen text-slate-950 antialiased dark:text-slate-100;
   background:
-    radial-gradient(circle at 10% -10%, rgba(251, 191, 36, 0.25), transparent 35%),
-    radial-gradient(circle at 90% 0%, rgba(56, 189, 248, 0.2), transparent 30%),
-    linear-gradient(180deg, #fff7ed 0%, #fffbeb 45%, #ffffff 100%);
+    radial-gradient(circle at 10% -10%, rgba(251, 191, 36, 0.22), transparent 35%),
+    radial-gradient(circle at 90% 0%, rgba(56, 189, 248, 0.16), transparent 30%),
+    linear-gradient(180deg, #fffbeb 0%, #fff7ed 45%, #f8fafc 100%);
 }
 
 .dark body {
@@ -27,4 +27,36 @@ body {
 
 #app {
   @apply min-h-screen;
+}
+
+@layer base {
+  button {
+    @apply transition duration-150 ease-out;
+    transition-property: transform, box-shadow, background-color, border-color, color, opacity;
+  }
+
+  button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    filter: brightness(1.05) saturate(1.04);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      inset 0 -1px 0 rgba(15, 23, 42, 0.12),
+      0 8px 18px -10px rgba(15, 23, 42, 0.45);
+  }
+
+  .dark button:hover:not(:disabled) {
+    filter: brightness(1.08) saturate(1.06);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 -1px 0 rgba(2, 6, 23, 0.62),
+      0 10px 20px -12px rgba(2, 6, 23, 0.9);
+  }
+
+  button:active:not(:disabled) {
+    transform: translateY(0);
+    filter: brightness(0.98) saturate(1);
+    box-shadow:
+      inset 0 1px 2px rgba(2, 6, 23, 0.22),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.12);
+  }
 }

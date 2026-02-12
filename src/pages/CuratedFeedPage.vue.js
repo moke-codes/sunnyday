@@ -1,7 +1,9 @@
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { useToolsStore } from '@/stores/tools';
+import { useUiStore } from '@/stores/ui';
 const tools = useToolsStore();
+const ui = useUiStore();
 const query = ref('');
 const author = ref('');
 const searchResults = ref([]);
@@ -22,7 +24,13 @@ const isDetailsOpen = ref(false);
 const isAutomationOpen = ref(false);
 const isSearching = ref(false);
 const showDeleteFeedModal = ref(false);
+const isPublishingFeed = ref(false);
+const isPushingContent = ref(false);
+const isDeletingFeed = ref(false);
 const uiError = ref('');
+const deleteCancelButton = ref(null);
+const deleteConfirmButton = ref(null);
+const deleteTriggerElement = ref(null);
 let hlsLoaderPromise = null;
 const hlsInstances = new Map();
 const boundVideoUrls = new WeakMap();
@@ -50,8 +58,22 @@ onBeforeUnmount(() => {
     if (authorSearchTimer)
         window.clearTimeout(authorSearchTimer);
     document.removeEventListener('click', onDocumentClick);
+    document.removeEventListener('keydown', onDeleteModalKeydown);
+    document.body.style.overflow = '';
     hlsInstances.forEach((instance) => instance.destroy());
     hlsInstances.clear();
+});
+watch(showDeleteFeedModal, async (open) => {
+    if (open) {
+        document.addEventListener('keydown', onDeleteModalKeydown);
+        document.body.style.overflow = 'hidden';
+        await nextTick();
+        deleteCancelButton.value?.focus();
+        return;
+    }
+    document.removeEventListener('keydown', onDeleteModalKeydown);
+    document.body.style.overflow = '';
+    deleteTriggerElement.value?.focus();
 });
 watch(author, (value) => {
     const queryValue = value.trim();
@@ -148,25 +170,34 @@ async function deleteActiveFeed() {
     if (!tools.activeFeed)
         return;
     uiError.value = '';
+    isDeletingFeed.value = true;
     const deleteFeedFn = tools.deleteFeed;
     if (typeof deleteFeedFn === 'function') {
         try {
             await deleteFeedFn(tools.activeFeed.id);
+            ui.notifySuccess('Feed deleted.');
         }
         catch (error) {
             uiError.value = error.message || 'Failed to delete feed.';
+            ui.notifyError(uiError.value);
             return;
+        }
+        finally {
+            isDeletingFeed.value = false;
         }
     }
     else {
         fallbackDeleteFeed(tools.activeFeed.id);
+        isDeletingFeed.value = false;
+        ui.notifySuccess('Feed deleted.');
     }
     renameValue.value = tools.activeFeed?.name ?? '';
     automation.value = cloneAutomation();
 }
-function promptDeleteActiveFeed() {
+function promptDeleteActiveFeed(event) {
     if (!tools.activeFeed)
         return;
+    deleteTriggerElement.value = event.currentTarget;
     showDeleteFeedModal.value = true;
 }
 function cancelDeleteFeed() {
@@ -182,9 +213,11 @@ function clearAllDraftPosts() {
     const clearDraftFn = tools.clearActiveFeedDraftPosts;
     if (typeof clearDraftFn === 'function') {
         clearDraftFn();
+        ui.notifyInfo('Removed all draft posts from active feed.');
         return;
     }
     fallbackClearAllDraftPosts();
+    ui.notifyInfo('Removed all draft posts from active feed.');
 }
 function saveAutomation() {
     if (!tools.activeFeed)
@@ -374,29 +407,50 @@ function publishActiveFeed() {
     if (!tools.activeFeed)
         return;
     uiError.value = '';
+    if (isPublishingFeed.value)
+        return;
     const publishFn = tools.publishActiveFeedToBluesky;
     if (typeof publishFn === 'function') {
-        publishFn().catch((error) => {
+        isPublishingFeed.value = true;
+        publishFn()
+            .then(() => {
+            ui.notifySuccess('Feed published to Bluesky.');
+        })
+            .catch((error) => {
             uiError.value = error.message || 'Failed to publish to Bluesky.';
+            ui.notifyError(uiError.value);
+        })
+            .finally(() => {
+            isPublishingFeed.value = false;
         });
         return;
     }
     uiError.value = 'Publish is unavailable in this runtime. Refresh the page.';
+    ui.notifyError(uiError.value);
 }
 async function publishContentOnly() {
     if (!tools.activeFeed)
         return;
     uiError.value = '';
+    if (isPushingContent.value)
+        return;
     const pushFn = tools.pushActiveFeedContentsOnly;
     if (typeof pushFn !== 'function') {
         uiError.value = 'Publish Content-only is unavailable. Refresh the page.';
+        ui.notifyError(uiError.value);
         return;
     }
+    isPushingContent.value = true;
     try {
         await pushFn();
+        ui.notifySuccess('Feed content pushed.');
     }
     catch (error) {
         uiError.value = error.message || 'Failed to push feed contents.';
+        ui.notifyError(uiError.value);
+    }
+    finally {
+        isPushingContent.value = false;
     }
 }
 function discardChanges() {
@@ -559,6 +613,32 @@ function onDocumentClick(event) {
         closeAuthorDropdown();
     }
 }
+function onDeleteModalKeydown(event) {
+    if (!showDeleteFeedModal.value)
+        return;
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelDeleteFeed();
+        return;
+    }
+    if (event.key !== 'Tab')
+        return;
+    const focusables = [deleteCancelButton.value, deleteConfirmButton.value].filter((element) => Boolean(element));
+    if (!focusables.length)
+        return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+        return;
+    }
+    if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+    }
+}
 function formatDateTime(value) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime()))
@@ -707,20 +787,20 @@ if (__VLS_ctx.tools.activeFeed) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
         ...{ onClick: (__VLS_ctx.publishActiveFeed) },
         ...{ class: "rounded-md border border-emerald-500 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-700 dark:text-emerald-300" },
-        disabled: (!__VLS_ctx.tools.activeFeed.isDirty || __VLS_ctx.tools.loading),
+        disabled: (!__VLS_ctx.tools.activeFeed.isDirty || __VLS_ctx.isPublishingFeed),
     });
-    (__VLS_ctx.tools.loading ? 'Publishing...' : 'Publish');
+    (__VLS_ctx.isPublishingFeed ? 'Publishing...' : 'Publish');
     __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
         ...{ onClick: (__VLS_ctx.publishContentOnly) },
         ...{ class: "rounded-md border border-sky-500 px-3 py-2 text-xs text-sky-700 dark:border-sky-700 dark:text-sky-300" },
-        disabled: (!__VLS_ctx.tools.activeFeed.blueskyFeedUri || __VLS_ctx.tools.loading),
+        disabled: (!__VLS_ctx.tools.activeFeed.blueskyFeedUri || __VLS_ctx.isPushingContent),
         title: "Push current post list to the feed generator without updating the Bluesky record",
     });
-    (__VLS_ctx.tools.loading ? 'Pushing...' : 'Publish Content-only');
+    (__VLS_ctx.isPushingContent ? 'Pushing...' : 'Publish Content-only');
     __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
         ...{ onClick: (__VLS_ctx.discardChanges) },
         ...{ class: "rounded-md border border-slate-300 px-3 py-2 text-xs dark:border-slate-700" },
-        disabled: (!__VLS_ctx.tools.activeFeed.isDirty || __VLS_ctx.tools.loading),
+        disabled: (!__VLS_ctx.tools.activeFeed.isDirty || __VLS_ctx.isPublishingFeed || __VLS_ctx.isPushingContent),
     });
     __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
         ...{ class: "rounded-lg border border-slate-200 dark:border-slate-700" },
@@ -1146,14 +1226,21 @@ if (__VLS_ctx.showDeleteFeedModal) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
         ...{ onClick: (__VLS_ctx.cancelDeleteFeed) },
         ...{ class: "fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 px-4" },
+        role: "presentation",
     });
     __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
         ...{ class: "w-full max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900" },
+        role: "dialog",
+        'aria-modal': "true",
+        'aria-labelledby': "delete-feed-title",
+        'aria-describedby': "delete-feed-description",
     });
     __VLS_asFunctionalElement(__VLS_intrinsicElements.h4, __VLS_intrinsicElements.h4)({
+        id: "delete-feed-title",
         ...{ class: "text-base font-semibold" },
     });
     __VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({
+        id: "delete-feed-description",
         ...{ class: "mt-2 text-sm text-slate-600 dark:text-slate-300" },
     });
     __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
@@ -1165,14 +1252,18 @@ if (__VLS_ctx.showDeleteFeedModal) {
     });
     __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
         ...{ onClick: (__VLS_ctx.cancelDeleteFeed) },
+        ref: "deleteCancelButton",
         ...{ class: "rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700" },
     });
+    /** @type {typeof __VLS_ctx.deleteCancelButton} */ ;
     __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
         ...{ onClick: (__VLS_ctx.confirmDeleteActiveFeed) },
+        ref: "deleteConfirmButton",
         ...{ class: "rounded-md border border-rose-500 px-3 py-2 text-sm text-rose-700 disabled:opacity-50 dark:border-rose-700 dark:text-rose-300" },
-        disabled: (__VLS_ctx.tools.loading),
+        disabled: (__VLS_ctx.isDeletingFeed),
     });
-    (__VLS_ctx.tools.loading ? 'Deleting...' : 'Delete feed');
+    /** @type {typeof __VLS_ctx.deleteConfirmButton} */ ;
+    (__VLS_ctx.isDeletingFeed ? 'Deleting...' : 'Delete feed');
 }
 var __VLS_2;
 /** @type {__VLS_StyleScopedClasses['space-y-5']} */ ;
@@ -1766,7 +1857,12 @@ const __VLS_self = (await import('vue')).defineComponent({
             isAutomationOpen: isAutomationOpen,
             isSearching: isSearching,
             showDeleteFeedModal: showDeleteFeedModal,
+            isPublishingFeed: isPublishingFeed,
+            isPushingContent: isPushingContent,
+            isDeletingFeed: isDeletingFeed,
             uiError: uiError,
+            deleteCancelButton: deleteCancelButton,
+            deleteConfirmButton: deleteConfirmButton,
             showAuthorDropdown: showAuthorDropdown,
             highlightedAuthorDid: highlightedAuthorDid,
             search: search,

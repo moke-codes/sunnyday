@@ -74,22 +74,22 @@
               <div class="mt-2 flex flex-wrap gap-2">
                 <button
                   class="rounded-md border border-emerald-500 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-700 dark:text-emerald-300"
-                  :disabled="!tools.activeFeed.isDirty || tools.loading"
+                  :disabled="!tools.activeFeed.isDirty || isPublishingFeed"
                   @click="publishActiveFeed"
                 >
-                  {{ tools.loading ? 'Publishing...' : 'Publish' }}
+                  {{ isPublishingFeed ? 'Publishing...' : 'Publish' }}
                 </button>
                 <button
                   class="rounded-md border border-sky-500 px-3 py-2 text-xs text-sky-700 dark:border-sky-700 dark:text-sky-300"
-                  :disabled="!tools.activeFeed.blueskyFeedUri || tools.loading"
+                  :disabled="!tools.activeFeed.blueskyFeedUri || isPushingContent"
                   title="Push current post list to the feed generator without updating the Bluesky record"
                   @click="publishContentOnly"
                 >
-                  {{ tools.loading ? 'Pushing...' : 'Publish Content-only' }}
+                  {{ isPushingContent ? 'Pushing...' : 'Publish Content-only' }}
                 </button>
                 <button
                   class="rounded-md border border-slate-300 px-3 py-2 text-xs dark:border-slate-700"
-                  :disabled="!tools.activeFeed.isDirty || tools.loading"
+                  :disabled="!tools.activeFeed.isDirty || isPublishingFeed || isPushingContent"
                   @click="discardChanges"
                 >
                   Discard changes
@@ -411,24 +411,36 @@
       <div
         v-if="showDeleteFeedModal"
         class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 px-4"
+        role="presentation"
         @click.self="cancelDeleteFeed"
       >
-        <div class="w-full max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
-          <h4 class="text-base font-semibold">Delete Feed?</h4>
-          <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">
+        <div
+          class="w-full max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-feed-title"
+          aria-describedby="delete-feed-description"
+        >
+          <h4 id="delete-feed-title" class="text-base font-semibold">Delete Feed?</h4>
+          <p id="delete-feed-description" class="mt-2 text-sm text-slate-600 dark:text-slate-300">
             This will delete <span class="font-medium">{{ tools.activeFeed?.name || 'this feed' }}</span>.
             If published, we will also attempt to remove it from Bluesky.
           </p>
           <div class="mt-4 flex justify-end gap-2">
-            <button class="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700" @click="cancelDeleteFeed">
+            <button
+              ref="deleteCancelButton"
+              class="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700"
+              @click="cancelDeleteFeed"
+            >
               Cancel
             </button>
             <button
+              ref="deleteConfirmButton"
               class="rounded-md border border-rose-500 px-3 py-2 text-sm text-rose-700 disabled:opacity-50 dark:border-rose-700 dark:text-rose-300"
-              :disabled="tools.loading"
+              :disabled="isDeletingFeed"
               @click="confirmDeleteActiveFeed"
             >
-              {{ tools.loading ? 'Deleting...' : 'Delete feed' }}
+              {{ isDeletingFeed ? 'Deleting...' : 'Delete feed' }}
             </button>
           </div>
         </div>
@@ -439,12 +451,14 @@
 
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { useToolsStore } from '@/stores/tools';
+import { useUiStore } from '@/stores/ui';
 import type { ActorSearchResult, CuratedPost, FeedAutomationConfig } from '@/types/bluesky';
 
 const tools = useToolsStore();
+const ui = useUiStore();
 const query = ref('');
 const author = ref('');
 const searchResults = ref<CuratedPost[]>([]);
@@ -465,7 +479,13 @@ const isDetailsOpen = ref(false);
 const isAutomationOpen = ref(false);
 const isSearching = ref(false);
 const showDeleteFeedModal = ref(false);
+const isPublishingFeed = ref(false);
+const isPushingContent = ref(false);
+const isDeletingFeed = ref(false);
 const uiError = ref('');
+const deleteCancelButton = ref<HTMLButtonElement | null>(null);
+const deleteConfirmButton = ref<HTMLButtonElement | null>(null);
+const deleteTriggerElement = ref<HTMLElement | null>(null);
 let hlsLoaderPromise: Promise<any | null> | null = null;
 const hlsInstances = new Map<HTMLVideoElement, { destroy: () => void }>();
 const boundVideoUrls = new WeakMap<HTMLVideoElement, string>();
@@ -497,8 +517,23 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (authorSearchTimer) window.clearTimeout(authorSearchTimer);
   document.removeEventListener('click', onDocumentClick);
+  document.removeEventListener('keydown', onDeleteModalKeydown);
+  document.body.style.overflow = '';
   hlsInstances.forEach((instance) => instance.destroy());
   hlsInstances.clear();
+});
+
+watch(showDeleteFeedModal, async (open) => {
+  if (open) {
+    document.addEventListener('keydown', onDeleteModalKeydown);
+    document.body.style.overflow = 'hidden';
+    await nextTick();
+    deleteCancelButton.value?.focus();
+    return;
+  }
+  document.removeEventListener('keydown', onDeleteModalKeydown);
+  document.body.style.overflow = '';
+  deleteTriggerElement.value?.focus();
 });
 
 watch(author, (value) => {
@@ -595,23 +630,31 @@ async function deleteActiveFeed() {
   showDeleteFeedModal.value = false;
   if (!tools.activeFeed) return;
   uiError.value = '';
+  isDeletingFeed.value = true;
   const deleteFeedFn = (tools as any).deleteFeed as ((feedId: string) => Promise<void> | void) | undefined;
   if (typeof deleteFeedFn === 'function') {
     try {
       await deleteFeedFn(tools.activeFeed.id);
+      ui.notifySuccess('Feed deleted.');
     } catch (error) {
       uiError.value = (error as Error).message || 'Failed to delete feed.';
+      ui.notifyError(uiError.value);
       return;
+    } finally {
+      isDeletingFeed.value = false;
     }
   } else {
     fallbackDeleteFeed(tools.activeFeed.id);
+    isDeletingFeed.value = false;
+    ui.notifySuccess('Feed deleted.');
   }
   renameValue.value = tools.activeFeed?.name ?? '';
   automation.value = cloneAutomation();
 }
 
-function promptDeleteActiveFeed() {
+function promptDeleteActiveFeed(event: MouseEvent) {
   if (!tools.activeFeed) return;
+  deleteTriggerElement.value = event.currentTarget as HTMLElement;
   showDeleteFeedModal.value = true;
 }
 
@@ -629,9 +672,11 @@ function clearAllDraftPosts() {
   const clearDraftFn = (tools as any).clearActiveFeedDraftPosts as (() => void) | undefined;
   if (typeof clearDraftFn === 'function') {
     clearDraftFn();
+    ui.notifyInfo('Removed all draft posts from active feed.');
     return;
   }
   fallbackClearAllDraftPosts();
+  ui.notifyInfo('Removed all draft posts from active feed.');
 }
 
 function saveAutomation() {
@@ -848,32 +893,50 @@ function fallbackClearAllDraftPosts() {
 function publishActiveFeed() {
   if (!tools.activeFeed) return;
   uiError.value = '';
+  if (isPublishingFeed.value) return;
   const publishFn = (tools as any).publishActiveFeedToBluesky as
     | (() => Promise<void>)
     | undefined;
   if (typeof publishFn === 'function') {
-    publishFn().catch((error) => {
-      uiError.value = (error as Error).message || 'Failed to publish to Bluesky.';
-    });
+    isPublishingFeed.value = true;
+    publishFn()
+      .then(() => {
+        ui.notifySuccess('Feed published to Bluesky.');
+      })
+      .catch((error) => {
+        uiError.value = (error as Error).message || 'Failed to publish to Bluesky.';
+        ui.notifyError(uiError.value);
+      })
+      .finally(() => {
+        isPublishingFeed.value = false;
+      });
     return;
   }
   uiError.value = 'Publish is unavailable in this runtime. Refresh the page.';
+  ui.notifyError(uiError.value);
 }
 
 async function publishContentOnly() {
   if (!tools.activeFeed) return;
   uiError.value = '';
+  if (isPushingContent.value) return;
   const pushFn = (tools as any).pushActiveFeedContentsOnly as
     | (() => Promise<void>)
     | undefined;
   if (typeof pushFn !== 'function') {
     uiError.value = 'Publish Content-only is unavailable. Refresh the page.';
+    ui.notifyError(uiError.value);
     return;
   }
+  isPushingContent.value = true;
   try {
     await pushFn();
+    ui.notifySuccess('Feed content pushed.');
   } catch (error) {
     uiError.value = (error as Error).message || 'Failed to push feed contents.';
+    ui.notifyError(uiError.value);
+  } finally {
+    isPushingContent.value = false;
   }
 }
 
@@ -1047,6 +1110,34 @@ function onDocumentClick(event: MouseEvent) {
   if (!container) return;
   if (!container.contains(event.target as Node)) {
     closeAuthorDropdown();
+  }
+}
+
+function onDeleteModalKeydown(event: KeyboardEvent) {
+  if (!showDeleteFeedModal.value) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    cancelDeleteFeed();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+
+  const focusables = [deleteCancelButton.value, deleteConfirmButton.value].filter(
+    (element): element is HTMLButtonElement => Boolean(element),
+  );
+  if (!focusables.length) return;
+
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey && active === first) {
+    event.preventDefault();
+    last.focus();
+    return;
+  }
+  if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
   }
 }
 
