@@ -1,6 +1,7 @@
 import { computed, ref, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { blueskyClient } from '@/services/blueskyClient';
+import { pushFeedContents, removeFeedContents } from '@/services/feedgenClient';
 import { loadCuratedFeeds, saveCuratedFeeds } from '@/services/sessionStorage';
 import type {
   ActorSearchResult,
@@ -250,6 +251,9 @@ export const useToolsStore = defineStore('tools', () => {
       loading.value = true;
       try {
         await blueskyClient.deleteFeedGeneratorRecord(rkey);
+        if (targetFeed.blueskyFeedUri) {
+          await removeFeedContents(targetFeed.blueskyFeedUri);
+        }
       } catch (error) {
         const message = (error as Error).message || 'Failed to delete feed on Bluesky.';
         curatedFeeds.value = curatedFeeds.value.map((feed) =>
@@ -265,6 +269,8 @@ export const useToolsStore = defineStore('tools', () => {
       } finally {
         loading.value = false;
       }
+    } else if (targetFeed.blueskyFeedUri) {
+      await removeFeedContents(targetFeed.blueskyFeedUri);
     }
 
     curatedFeeds.value = curatedFeeds.value.filter((feed) => feed.id !== feedId);
@@ -368,6 +374,13 @@ export const useToolsStore = defineStore('tools', () => {
         iconDataUrl: feed.iconDataUrl,
       });
       const publishedAt = new Date().toISOString();
+
+      if (import.meta.env.VITE_FEEDGEN_URL && import.meta.env.VITE_FEEDGEN_SECRET) {
+        await pushFeedContents(
+          published.uri,
+          feed.draftPosts.map((p) => p.uri),
+        );
+      }
 
       curatedFeeds.value = curatedFeeds.value.map((item) => {
         if (item.id !== feed.id) return item;

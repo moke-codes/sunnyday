@@ -11,12 +11,13 @@ Usage:
 
 What it does:
   1) Generates DID document at deploy/did/.well-known/did.json
-  2) Generates Nginx server block template at deploy/nginx/<domain>.conf
-  3) Generates env snippet at deploy/.env.feedgen
+  2) Generates Nginx full config at deploy/nginx/<domain>.conf (HTTPS + DID + /xrpc/ proxy)
+  3) Generates Nginx HTTP-only config at deploy/nginx/<domain>.http-only.conf (for obtaining TLS cert with certbot)
+  4) Generates env snippet at deploy/.env.feedgen
 
 Notes:
-  - This script does not edit /etc/nginx directly.
-  - You still need DNS, TLS certificate, and a running feed-generator backend.
+  - This script does not edit /etc/nginx or run certbot.
+  - You still need DNS and a running feed-generator backend. Use the HTTP-only config first to get a cert, then switch to the full config.
 USAGE
 }
 
@@ -116,8 +117,38 @@ server {
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto \$scheme;
   }
+
+  location /internal/ {
+    proxy_pass ${backend};
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+  }
 }
 NGINXCONF
+
+# HTTP-only config: use this first so nginx can start without a cert, then run certbot.
+cat > "deploy/nginx/${domain}.http-only.conf" <<NGINXHTTP
+# Use this config when you do not yet have a TLS cert. After running certbot, install the full config: deploy/nginx/${domain}.conf
+server {
+  listen 80;
+  server_name ${domain};
+
+  location = /.well-known/did.json {
+    root ${web_root};
+    default_type application/json;
+    add_header Access-Control-Allow-Origin "*";
+    add_header Cache-Control "public, max-age=300";
+  }
+
+  location / {
+    return 200 'ok';
+    add_header Content-Type text/plain;
+  }
+}
+NGINXHTTP
 
 cat > deploy/.env.feedgen <<ENVFILE
 # Copy this into your app .env
@@ -128,16 +159,35 @@ cat <<DONE
 Generated files:
 - deploy/did/.well-known/did.json
 - deploy/nginx/${domain}.conf
+- deploy/nginx/${domain}.http-only.conf
 - deploy/.env.feedgen
 
-Next steps:
-1. Copy DID file to server path:
-   ${web_root}/.well-known/did.json
-2. Install nginx conf:
-   /etc/nginx/sites-available/${domain}.conf
-   and symlink in /etc/nginx/sites-enabled/
-3. Reload nginx:
+Deploy steps (run on the server):
+
+1. Copy DID document so Nginx can serve it:
+   sudo mkdir -p ${web_root}/.well-known
+   sudo cp deploy/did/.well-known/did.json ${web_root}/.well-known/did.json
+
+2. If you do not yet have a TLS certificate for ${domain}:
+   a) Install the HTTP-only config (so Nginx can start):
+      sudo cp deploy/nginx/${domain}.http-only.conf /etc/nginx/sites-available/${domain}.conf
+      sudo ln -sf /etc/nginx/sites-available/${domain}.conf /etc/nginx/sites-enabled/
+      sudo nginx -t && sudo systemctl reload nginx
+   b) Obtain certificate (e.g. certbot):
+      sudo certbot --nginx -d ${domain} --non-interactive --agree-tos --register-unsafely-without-email
+   c) Install the full config (HTTPS + DID + /xrpc/ proxy):
+      sudo cp deploy/nginx/${domain}.conf /etc/nginx/sites-available/${domain}.conf
+      sudo nginx -t && sudo systemctl reload nginx
+
+   If you already have a certificate at /etc/letsencrypt/live/${domain}/:
+   sudo cp deploy/nginx/${domain}.conf /etc/nginx/sites-available/
+   sudo ln -sf /etc/nginx/sites-available/${domain}.conf /etc/nginx/sites-enabled/
    sudo nginx -t && sudo systemctl reload nginx
-4. Set app env var:
+
+3. Set app env var (e.g. in .env):
    VITE_BSKY_FEEDGEN_DID=${did}
+
+4. Verify DID resolution:
+   curl -sS https://${domain}/.well-known/did.json
+   (Should show "id":"${did}" and BskyFeedGenerator service.)
 DONE
