@@ -231,12 +231,17 @@ function renameActiveFeed() {
   renameValue.value = tools.activeFeed.name;
 }
 
-function deleteActiveFeed() {
+async function deleteActiveFeed() {
   if (!tools.activeFeed) return;
   uiError.value = '';
-  const deleteFeedFn = (tools as any).deleteFeed as ((feedId: string) => void) | undefined;
+  const deleteFeedFn = (tools as any).deleteFeed as ((feedId: string) => Promise<void> | void) | undefined;
   if (typeof deleteFeedFn === 'function') {
-    deleteFeedFn(tools.activeFeed.id);
+    try {
+      await deleteFeedFn(tools.activeFeed.id);
+    } catch (error) {
+      uiError.value = (error as Error).message || 'Failed to delete feed.';
+      return;
+    }
   } else {
     fallbackDeleteFeed(tools.activeFeed.id);
   }

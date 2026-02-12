@@ -296,6 +296,16 @@ class BlueskyClient {
     };
   }
 
+  async deleteFeedGeneratorRecord(rkey: string) {
+    const api: any = this.agent.api;
+    const repo = this.requireDid();
+    await api.com.atproto.repo.deleteRecord({
+      repo,
+      collection: 'app.bsky.feed.generator',
+      rkey,
+    });
+  }
+
   private requireDid() {
     const did = this.agent.session?.did;
     if (!did) {

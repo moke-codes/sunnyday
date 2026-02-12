@@ -59,4 +59,5 @@ It will create:
 - Session tokens are persisted in browser `localStorage` for persistent login.
 - App password is used only on login and not intentionally persisted.
 - `Publish` now creates/updates a Bluesky `app.bsky.feed.generator` record.
+- Deleting a published feed attempts to delete its `app.bsky.feed.generator` record on Bluesky first.
 - For feed delivery and discoverability, your feed-generator service/DID must be properly deployed and resolvable.

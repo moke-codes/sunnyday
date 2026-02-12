@@ -210,7 +210,32 @@ export const useToolsStore = defineStore('tools', () => {
     });
   }
 
-  function deleteFeed(feedId: string) {
+  async function deleteFeed(feedId: string) {
+    const targetFeed = curatedFeeds.value.find((feed) => feed.id === feedId);
+    if (!targetFeed) return;
+
+    const rkey = targetFeed.blueskyFeedRkey ?? extractFeedRkey(targetFeed.blueskyFeedUri);
+    if (rkey) {
+      loading.value = true;
+      try {
+        await blueskyClient.deleteFeedGeneratorRecord(rkey);
+      } catch (error) {
+        const message = (error as Error).message || 'Failed to delete feed on Bluesky.';
+        curatedFeeds.value = curatedFeeds.value.map((feed) =>
+          feed.id === feedId
+            ? {
+                ...feed,
+                lastPublishError: message,
+                updatedAt: new Date().toISOString(),
+              }
+            : feed,
+        );
+        throw new Error(`Could not delete published feed on Bluesky: ${message}`);
+      } finally {
+        loading.value = false;
+      }
+    }
+
     curatedFeeds.value = curatedFeeds.value.filter((feed) => feed.id !== feedId);
 
     if (!curatedFeeds.value.length) {
@@ -399,6 +424,12 @@ function generateId() {
     return crypto.randomUUID();
   }
   return `feed-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function extractFeedRkey(uri?: string) {
+  if (!uri) return null;
+  const match = uri.match(/\/app\.bsky\.feed\.generator\/([^/?#]+)$/);
+  return match?.[1] ?? null;
 }
 
 function loadInitialFeeds() {
