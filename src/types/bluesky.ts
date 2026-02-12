@@ -50,3 +50,26 @@ export interface CuratedPost {
   approved?: boolean;
   expiresAt?: string;
 }
+
+export interface FeedAutomationConfig {
+  enabled: boolean;
+  mode: 'words' | 'regex';
+  pattern: string;
+  caseSensitive: boolean;
+}
+
+export interface CuratedFeed {
+  id: string;
+  name: string;
+  automation: FeedAutomationConfig;
+  publishedAutomation: FeedAutomationConfig;
+  draftPosts: CuratedPost[];
+  publishedPosts: CuratedPost[];
+  isDirty: boolean;
+  lastPublishedAt?: string;
+  blueskyFeedUri?: string;
+  blueskyFeedRkey?: string;
+  lastPublishError?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

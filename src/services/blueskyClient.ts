@@ -13,6 +13,12 @@ export interface LoginPayload {
   password: string;
 }
 
+export interface PublishFeedGeneratorPayload {
+  feedId: string;
+  displayName: string;
+  description?: string;
+}
+
 const service = 'https://bsky.social';
 const listPurpose = 'app.bsky.graph.defs#curatelist';
 
@@ -261,6 +267,35 @@ class BlueskyClient {
     }));
   }
 
+  async publishFeedGenerator(payload: PublishFeedGeneratorPayload) {
+    const api: any = this.agent.api;
+    const repo = this.requireDid();
+    const serviceDid = import.meta.env.VITE_BSKY_FEEDGEN_DID;
+    if (!serviceDid) {
+      throw new Error('Missing VITE_BSKY_FEEDGEN_DID. Configure it before publishing to Bluesky.');
+    }
+
+    const rkey = makeFeedRkey(payload.feedId);
+    const response = await api.com.atproto.repo.putRecord({
+      repo,
+      collection: 'app.bsky.feed.generator',
+      rkey,
+      record: {
+        did: serviceDid,
+        displayName: payload.displayName.trim(),
+        description: payload.description?.trim() || undefined,
+        createdAt: new Date().toISOString(),
+      },
+      validate: false,
+    });
+
+    return {
+      uri: response.data?.uri ?? `at://${repo}/app.bsky.feed.generator/${rkey}`,
+      cid: response.data?.cid,
+      rkey,
+    };
+  }
+
   private requireDid() {
     const did = this.agent.session?.did;
     if (!did) {
@@ -360,3 +395,8 @@ function dedupeMembers(members: ListMember[]) {
 }
 
 export const blueskyClient = new BlueskyClient();
+
+function makeFeedRkey(feedId: string) {
+  const normalized = feedId.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20) || 'feed';
+  return `sunnyday-${normalized}`;
+}

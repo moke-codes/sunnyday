@@ -3,11 +3,61 @@
     <section class="space-y-5">
       <header>
         <h2 class="text-xl font-semibold">Curated Feed Workspace</h2>
-        <p class="text-sm text-slate-600 dark:text-slate-400">Search posts and add them into your selected bucket. Enable moderation mode only when automation is needed.</p>
+        <p class="text-sm text-slate-600 dark:text-slate-400">
+          Manage multiple feeds, configure automation rules, and curate posts from search.
+        </p>
+        <p v-if="uiError" class="mt-2 text-sm text-rose-600">{{ uiError }}</p>
       </header>
 
-      <div class="grid gap-4 md:grid-cols-5">
-        <section class="space-y-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:col-span-3">
+      <div class="grid gap-4 lg:grid-cols-12">
+        <aside class="space-y-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 lg:col-span-3">
+          <h3 class="font-semibold">Feeds</h3>
+          <div class="flex gap-2">
+            <input
+              v-model="newFeedName"
+              class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
+              placeholder="New feed name"
+              @keyup.enter="createFeed"
+            />
+            <button class="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700" @click="createFeed">
+              Add
+            </button>
+          </div>
+
+          <div class="space-y-2">
+            <button
+              v-for="feed in tools.curatedFeeds"
+              :key="feed.id"
+              type="button"
+              class="w-full rounded-md border px-3 py-2 text-left"
+              :class="feed.id === tools.activeFeedId ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40' : 'border-slate-200 dark:border-slate-700'"
+              @click="tools.setActiveFeed(feed.id)"
+            >
+              <p class="truncate text-sm font-medium">{{ feed.name }}</p>
+              <p class="text-xs text-slate-500">{{ feed.draftPosts.length }} draft posts</p>
+              <p v-if="feed.isDirty" class="text-xs text-amber-600 dark:text-amber-400">Unpublished changes</p>
+            </button>
+          </div>
+
+          <div v-if="tools.activeFeed" class="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-700">
+            <label class="block text-sm">
+              Rename active feed
+              <input
+                v-model="renameValue"
+                class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
+                @keyup.enter="renameActiveFeed"
+              />
+            </label>
+            <div class="flex gap-2">
+              <button class="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700" @click="renameActiveFeed">Rename</button>
+              <button class="rounded-md border border-rose-400 px-3 py-2 text-sm text-rose-700 dark:border-rose-700 dark:text-rose-300" @click="deleteActiveFeed">Delete</button>
+            </div>
+          </div>
+        </aside>
+
+        <section class="space-y-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 lg:col-span-5">
+          <h3 class="font-semibold">Search Posts</h3>
+
           <div class="grid gap-3 md:grid-cols-2">
             <label class="text-sm">
               Query
@@ -19,52 +69,107 @@
             </label>
           </div>
 
-          <div class="flex items-center gap-3">
-            <button class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white dark:bg-slate-100 dark:text-slate-900" @click="search">
-              Search
-            </button>
-            <label class="inline-flex items-center gap-2 text-sm">
-              <input :checked="tools.moderationMode" type="checkbox" @change="toggleModeration" />
-              Automation mode (approve/reject queue)
-            </label>
-          </div>
+          <button class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white dark:bg-slate-100 dark:text-slate-900" @click="search">
+            Search
+          </button>
 
           <div class="space-y-2">
             <article v-for="post in searchResults" :key="post.uri" class="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
               <p class="font-medium">@{{ post.authorHandle }}</p>
               <p class="mt-1 whitespace-pre-wrap text-slate-700 dark:text-slate-300">{{ post.text || '(No text content)' }}</p>
-              <button class="mt-3 rounded border border-slate-300 px-2 py-1 text-xs dark:border-slate-700" @click="tools.togglePostSelection(post)">
-                Add to {{ tools.moderationMode ? 'queue' : 'selected posts' }}
+              <button
+                class="mt-3 rounded border px-2 py-1 text-xs"
+                :class="tools.isPostInActiveFeed(post.uri) ? 'border-rose-400 text-rose-700 dark:border-rose-700 dark:text-rose-300' : 'border-slate-300 dark:border-slate-700'"
+                @click="togglePost(post)"
+              >
+                {{ tools.isPostInActiveFeed(post.uri) ? 'Remove from feed' : 'Add to feed' }}
               </button>
             </article>
           </div>
         </section>
 
-        <section class="space-y-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:col-span-2">
-          <h3 class="font-semibold">Selected posts ({{ tools.selectedPosts.length }})</h3>
-          <article v-for="post in tools.selectedPosts" :key="post.uri" class="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
-            <p class="font-medium">@{{ post.authorHandle }}</p>
-            <p class="mt-1 line-clamp-4 whitespace-pre-wrap text-slate-700 dark:text-slate-300">{{ post.text }}</p>
-            <label class="mt-2 block text-xs">
-              Expires in days (optional)
-              <input type="number" min="1" class="mt-1 w-full rounded border border-slate-300 px-2 py-1 dark:border-slate-700 dark:bg-slate-800" @change="setExpiration(post.uri, $event)" />
-            </label>
-            <button class="mt-2 rounded border border-slate-300 px-2 py-1 text-xs dark:border-slate-700" @click="tools.removeSelected(post.uri)">
-              Remove
-            </button>
-          </article>
+        <section class="space-y-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 lg:col-span-4">
+          <h3 class="font-semibold">Active Feed</h3>
 
-          <template v-if="tools.moderationMode">
-            <h3 class="pt-2 font-semibold">Pending queue ({{ tools.pendingPosts.length }})</h3>
-            <article v-for="post in tools.pendingPosts" :key="post.uri" class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/50">
-              <p class="font-medium">@{{ post.authorHandle }}</p>
-              <p class="mt-1 line-clamp-4 whitespace-pre-wrap">{{ post.text }}</p>
+          <div v-if="tools.activeFeed" class="space-y-3">
+            <div class="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
+              <p class="font-medium">{{ tools.activeFeed.isDirty ? 'Draft changes pending' : 'Published state up to date' }}</p>
+              <p class="text-xs text-slate-500">
+                Last published:
+                {{ tools.activeFeed.lastPublishedAt ? formatDateTime(tools.activeFeed.lastPublishedAt) : 'Never' }}
+              </p>
+              <p v-if="tools.activeFeed.blueskyFeedUri" class="mt-1 text-xs text-slate-500 break-all">
+                Bluesky URI: {{ tools.activeFeed.blueskyFeedUri }}
+              </p>
+              <p v-if="tools.activeFeed.lastPublishError" class="mt-1 text-xs text-rose-600">
+                {{ tools.activeFeed.lastPublishError }}
+              </p>
               <div class="mt-2 flex gap-2">
-                <button class="rounded border border-emerald-600 px-2 py-1 text-xs text-emerald-700 dark:text-emerald-300" @click="tools.approvePending(post.uri)">Approve</button>
-                <button class="rounded border border-rose-600 px-2 py-1 text-xs text-rose-700 dark:text-rose-300" @click="tools.rejectPending(post.uri)">Reject</button>
+                <button
+                  class="rounded-md border border-emerald-500 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-700 dark:text-emerald-300"
+                  :disabled="!tools.activeFeed.isDirty || tools.loading"
+                  @click="publishActiveFeed"
+                >
+                  {{ tools.loading ? 'Publishing...' : 'Publish' }}
+                </button>
+                <button
+                  class="rounded-md border border-slate-300 px-3 py-2 text-xs dark:border-slate-700"
+                  :disabled="!tools.activeFeed.isDirty || tools.loading"
+                  @click="discardChanges"
+                >
+                  Discard changes
+                </button>
               </div>
-            </article>
-          </template>
+            </div>
+
+            <div class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+              <p class="text-sm font-medium">Automation</p>
+              <label class="mt-2 inline-flex items-center gap-2 text-sm">
+                <input v-model="automation.enabled" type="checkbox" @change="saveAutomation" />
+                Enable automation
+              </label>
+
+              <div class="mt-2 grid gap-2">
+                <label class="text-sm">
+                  Mode
+                  <select v-model="automation.mode" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800" @change="saveAutomation">
+                    <option value="words">Words</option>
+                    <option value="regex">Regular expression</option>
+                  </select>
+                </label>
+
+                <label class="text-sm">
+                  {{ automation.mode === 'words' ? 'Words (comma separated)' : 'Regex pattern' }}
+                  <input
+                    v-model="automation.pattern"
+                    class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    :placeholder="automation.mode === 'words' ? 'vue, typescript, design' : '(vue|nuxt)\\s+3'"
+                    @blur="saveAutomation"
+                  />
+                </label>
+
+                <label class="inline-flex items-center gap-2 text-sm">
+                  <input v-model="automation.caseSensitive" type="checkbox" @change="saveAutomation" />
+                  Case sensitive
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <p class="mb-2 text-sm font-medium">
+                Draft curated posts ({{ tools.activeFeed.draftPosts.length }})
+              </p>
+              <div class="space-y-2">
+                <article v-for="post in tools.activeFeed.draftPosts" :key="post.uri" class="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
+                  <p class="font-medium">@{{ post.authorHandle }}</p>
+                  <p class="mt-1 line-clamp-4 whitespace-pre-wrap text-slate-700 dark:text-slate-300">{{ post.text }}</p>
+                  <button class="mt-2 rounded border border-slate-300 px-2 py-1 text-xs dark:border-slate-700" @click="tools.removePostFromActiveFeed(post.uri)">
+                    Remove
+                  </button>
+                </article>
+              </div>
+            </div>
+          </div>
         </section>
       </div>
     </section>
@@ -72,36 +177,263 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { useToolsStore } from '@/stores/tools';
-import type { CuratedPost } from '@/types/bluesky';
+import type { CuratedPost, FeedAutomationConfig } from '@/types/bluesky';
 
 const tools = useToolsStore();
 const query = ref('');
 const author = ref('');
 const searchResults = ref<CuratedPost[]>([]);
+const newFeedName = ref('');
+const renameValue = ref(tools.activeFeed?.name ?? '');
+const automation = ref<FeedAutomationConfig>(cloneAutomation());
+const uiError = ref('');
+
+watch(
+  () => tools.activeFeedId,
+  () => {
+    renameValue.value = tools.activeFeed?.name ?? '';
+    automation.value = cloneAutomation();
+  },
+  { immediate: true },
+);
 
 async function search() {
   searchResults.value = await tools.searchPosts(query.value, author.value || undefined);
 }
 
-function toggleModeration(event: Event) {
-  const target = event.target as HTMLInputElement;
-  tools.setModerationMode(target.checked);
+function createFeed() {
+  uiError.value = '';
+  const createFeedFn = (tools as any).createFeed as ((name: string) => any) | undefined;
+  const feed =
+    typeof createFeedFn === 'function'
+      ? createFeedFn(newFeedName.value)
+      : fallbackCreateFeed(newFeedName.value);
+  if (!feed) return;
+  newFeedName.value = '';
+  renameValue.value = feed.name;
+  automation.value = cloneAutomation();
 }
 
-function setExpiration(uri: string, event: Event) {
-  const target = event.target as HTMLInputElement;
-  const value = Number(target.value);
-  const post = tools.selectedPosts.find((item) => item.uri === uri);
-  if (!post) return;
-  if (!Number.isFinite(value) || value <= 0) {
-    post.expiresAt = undefined;
+function renameActiveFeed() {
+  if (!tools.activeFeed) return;
+  uiError.value = '';
+  const renameFeedFn = (tools as any).renameFeed as
+    | ((feedId: string, name: string) => void)
+    | undefined;
+  if (typeof renameFeedFn === 'function') {
+    renameFeedFn(tools.activeFeed.id, renameValue.value);
+  } else {
+    fallbackRenameFeed(tools.activeFeed.id, renameValue.value);
+  }
+  renameValue.value = tools.activeFeed.name;
+}
+
+function deleteActiveFeed() {
+  if (!tools.activeFeed) return;
+  uiError.value = '';
+  const deleteFeedFn = (tools as any).deleteFeed as ((feedId: string) => void) | undefined;
+  if (typeof deleteFeedFn === 'function') {
+    deleteFeedFn(tools.activeFeed.id);
+  } else {
+    fallbackDeleteFeed(tools.activeFeed.id);
+  }
+  renameValue.value = tools.activeFeed?.name ?? '';
+  automation.value = cloneAutomation();
+}
+
+function saveAutomation() {
+  if (!tools.activeFeed) return;
+  uiError.value = '';
+  const updateAutomationFn = (tools as any).updateFeedAutomation as
+    | ((feedId: string, automation: FeedAutomationConfig) => void)
+    | undefined;
+  if (typeof updateAutomationFn === 'function') {
+    updateAutomationFn(tools.activeFeed.id, { ...automation.value });
     return;
   }
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + value);
-  post.expiresAt = expiresAt.toISOString();
+  fallbackUpdateAutomation(tools.activeFeed.id, { ...automation.value });
+}
+
+function togglePost(post: CuratedPost) {
+  uiError.value = '';
+  const isPostInActiveFeedFn = (tools as any).isPostInActiveFeed as
+    | ((uri: string) => boolean)
+    | undefined;
+  const removePostFn = (tools as any).removePostFromActiveFeed as
+    | ((uri: string) => void)
+    | undefined;
+  const addPostFn = (tools as any).addPostToActiveFeed as ((post: CuratedPost) => void) | undefined;
+
+  const inFeed =
+    typeof isPostInActiveFeedFn === 'function'
+      ? isPostInActiveFeedFn(post.uri)
+      : Boolean(tools.activeFeed?.draftPosts.some((item) => item.uri === post.uri));
+
+  if (inFeed) {
+    if (typeof removePostFn === 'function') {
+      removePostFn(post.uri);
+      return;
+    }
+    fallbackRemovePost(post.uri);
+    return;
+  }
+  if (typeof addPostFn === 'function') {
+    addPostFn(post);
+    return;
+  }
+  fallbackAddPost(post);
+}
+
+function cloneAutomation(): FeedAutomationConfig {
+  return {
+    enabled: tools.activeFeed?.automation.enabled ?? false,
+    mode: tools.activeFeed?.automation.mode ?? 'words',
+    pattern: tools.activeFeed?.automation.pattern ?? '',
+    caseSensitive: tools.activeFeed?.automation.caseSensitive ?? false,
+  };
+}
+
+function fallbackCreateFeed(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+
+  const now = new Date().toISOString();
+  const feed = {
+    id: `feed-${Math.random().toString(36).slice(2, 10)}`,
+    name: trimmed,
+    automation: { enabled: false, mode: 'words', pattern: '', caseSensitive: false } as FeedAutomationConfig,
+    publishedAutomation: {
+      enabled: false,
+      mode: 'words',
+      pattern: '',
+      caseSensitive: false,
+    } as FeedAutomationConfig,
+    draftPosts: [] as CuratedPost[],
+    publishedPosts: [] as CuratedPost[],
+    isDirty: false,
+    lastPublishedAt: undefined as string | undefined,
+    blueskyFeedUri: undefined as string | undefined,
+    blueskyFeedRkey: undefined as string | undefined,
+    lastPublishError: null as string | null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  if (!Array.isArray((tools as any).curatedFeeds)) {
+    uiError.value = 'Feed store is outdated. Refresh the page to continue.';
+    return null;
+  }
+  (tools as any).curatedFeeds = [feed, ...(tools as any).curatedFeeds];
+  (tools as any).activeFeedId = feed.id;
+  return feed;
+}
+
+function fallbackRenameFeed(feedId: string, name: string) {
+  const trimmed = name.trim();
+  if (!trimmed || !Array.isArray((tools as any).curatedFeeds)) return;
+  (tools as any).curatedFeeds = (tools as any).curatedFeeds.map((feed: any) =>
+    feed.id === feedId ? { ...feed, name: trimmed, updatedAt: new Date().toISOString() } : feed,
+  );
+}
+
+function fallbackDeleteFeed(feedId: string) {
+  if (!Array.isArray((tools as any).curatedFeeds)) return;
+  (tools as any).curatedFeeds = (tools as any).curatedFeeds.filter((feed: any) => feed.id !== feedId);
+  if ((tools as any).activeFeedId === feedId) {
+    (tools as any).activeFeedId = (tools as any).curatedFeeds[0]?.id ?? null;
+  }
+}
+
+function fallbackUpdateAutomation(feedId: string, nextAutomation: FeedAutomationConfig) {
+  if (!Array.isArray((tools as any).curatedFeeds)) return;
+  (tools as any).curatedFeeds = (tools as any).curatedFeeds.map((feed: any) =>
+    feed.id === feedId
+      ? {
+          ...feed,
+          automation: { ...nextAutomation },
+          isDirty: true,
+          updatedAt: new Date().toISOString(),
+        }
+      : feed,
+  );
+}
+
+function fallbackAddPost(post: CuratedPost) {
+  if (!tools.activeFeed || !Array.isArray((tools as any).curatedFeeds)) return;
+  if (tools.activeFeed.draftPosts.some((item) => item.uri === post.uri)) return;
+  (tools as any).curatedFeeds = (tools as any).curatedFeeds.map((feed: any) =>
+    feed.id === tools.activeFeed?.id
+      ? {
+          ...feed,
+          draftPosts: [post, ...feed.draftPosts],
+          isDirty: true,
+          updatedAt: new Date().toISOString(),
+        }
+      : feed,
+  );
+}
+
+function fallbackRemovePost(uri: string) {
+  if (!tools.activeFeed || !Array.isArray((tools as any).curatedFeeds)) return;
+  (tools as any).curatedFeeds = (tools as any).curatedFeeds.map((feed: any) =>
+    feed.id === tools.activeFeed?.id
+      ? {
+          ...feed,
+          draftPosts: feed.draftPosts.filter((post: CuratedPost) => post.uri !== uri),
+          isDirty: true,
+          updatedAt: new Date().toISOString(),
+        }
+      : feed,
+  );
+}
+
+function publishActiveFeed() {
+  if (!tools.activeFeed) return;
+  uiError.value = '';
+  const publishFn = (tools as any).publishActiveFeedToBluesky as
+    | (() => Promise<void>)
+    | undefined;
+  if (typeof publishFn === 'function') {
+    publishFn().catch((error) => {
+      uiError.value = (error as Error).message || 'Failed to publish to Bluesky.';
+    });
+    return;
+  }
+  uiError.value = 'Publish is unavailable in this runtime. Refresh the page.';
+}
+
+function discardChanges() {
+  if (!tools.activeFeed) return;
+  uiError.value = '';
+  const discardFn = (tools as any).discardActiveFeedChanges as (() => void) | undefined;
+  if (typeof discardFn === 'function') {
+    discardFn();
+    return;
+  }
+  fallbackDiscard();
+}
+
+function fallbackDiscard() {
+  if (!tools.activeFeed || !Array.isArray((tools as any).curatedFeeds)) return;
+  (tools as any).curatedFeeds = (tools as any).curatedFeeds.map((feed: any) =>
+    feed.id === tools.activeFeed?.id
+      ? {
+          ...feed,
+          draftPosts: [...feed.publishedPosts],
+          automation: { ...feed.publishedAutomation },
+          isDirty: false,
+          updatedAt: new Date().toISOString(),
+        }
+      : feed,
+  );
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }
 </script>

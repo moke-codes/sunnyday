@@ -1,5 +1,6 @@
 const SESSION_KEY = 'sunnyday:bsky:session';
 const THEME_KEY = 'sunnyday:theme';
+const FEEDS_KEY = 'sunnyday:curated:feeds';
 
 export type SavedTheme = 'light' | 'dark' | 'system';
 
@@ -31,4 +32,18 @@ export function loadTheme(): SavedTheme {
     return value;
   }
   return 'system';
+}
+
+export function saveCuratedFeeds(feeds: unknown) {
+  localStorage.setItem(FEEDS_KEY, JSON.stringify(feeds));
+}
+
+export function loadCuratedFeeds<T>() {
+  const value = localStorage.getItem(FEEDS_KEY);
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
 }
