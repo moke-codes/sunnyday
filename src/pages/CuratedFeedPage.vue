@@ -56,40 +56,7 @@
         </aside>
 
         <section class="space-y-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 lg:col-span-5">
-          <h3 class="font-semibold">Search Posts</h3>
-
-          <div class="grid gap-3 md:grid-cols-2">
-            <label class="text-sm">
-              Query
-              <input v-model="query" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800" placeholder="keyword or phrase" />
-            </label>
-            <label class="text-sm">
-              Author handle (optional)
-              <input v-model="author" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800" placeholder="alice.bsky.social" />
-            </label>
-          </div>
-
-          <button class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white dark:bg-slate-100 dark:text-slate-900" @click="search">
-            Search
-          </button>
-
-          <div class="space-y-2">
-            <article v-for="post in searchResults" :key="post.uri" class="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
-              <p class="font-medium">@{{ post.authorHandle }}</p>
-              <p class="mt-1 whitespace-pre-wrap text-slate-700 dark:text-slate-300">{{ post.text || '(No text content)' }}</p>
-              <button
-                class="mt-3 rounded border px-2 py-1 text-xs"
-                :class="tools.isPostInActiveFeed(post.uri) ? 'border-rose-400 text-rose-700 dark:border-rose-700 dark:text-rose-300' : 'border-slate-300 dark:border-slate-700'"
-                @click="togglePost(post)"
-              >
-                {{ tools.isPostInActiveFeed(post.uri) ? 'Remove from feed' : 'Add to feed' }}
-              </button>
-            </article>
-          </div>
-        </section>
-
-        <section class="space-y-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 lg:col-span-4">
-          <h3 class="font-semibold">Active Feed</h3>
+          <h3 class="font-semibold">{{ tools.activeFeed?.name || 'Selected Feed' }}</h3>
 
           <div v-if="tools.activeFeed" class="space-y-3">
             <div class="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
@@ -130,83 +97,101 @@
               </div>
             </div>
 
-            <div class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-              <p class="text-sm font-medium">Feed details</p>
-              <label class="mt-2 block text-sm">
-                Description (optional)
-                <textarea
-                  v-model="feedDescription"
-                  rows="3"
-                  class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
-                  placeholder="Describe what this feed is about"
-                  @blur="saveFeedDetails"
-                />
-              </label>
+            <div class="rounded-lg border border-slate-200 dark:border-slate-700">
+              <button
+                type="button"
+                class="flex w-full items-center justify-between px-3 py-2 text-left"
+                @click="isDetailsOpen = !isDetailsOpen"
+              >
+                <p class="text-sm font-medium">Feed details</p>
+                <span class="text-xs text-slate-500">{{ isDetailsOpen ? 'Hide' : 'Show' }}</span>
+              </button>
+              <div v-if="isDetailsOpen" class="border-t border-slate-200 px-3 py-3 dark:border-slate-700">
+                <label class="block text-sm">
+                  Description (optional)
+                  <textarea
+                    v-model="feedDescription"
+                    rows="3"
+                    class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    placeholder="Describe what this feed is about"
+                    @blur="saveFeedDetails"
+                  />
+                </label>
 
-              <div class="mt-2 flex items-center gap-3">
-                <img
-                  v-if="feedIconPreview"
-                  :src="feedIconPreview"
-                  alt="Feed icon preview"
-                  class="h-12 w-12 rounded-lg border border-slate-200 object-cover dark:border-slate-700"
-                />
-                <div
-                  v-else
-                  class="flex h-12 w-12 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800"
-                >
-                  No icon
-                </div>
-                <div class="flex gap-2">
-                  <label class="cursor-pointer rounded-md border border-slate-300 px-3 py-2 text-xs dark:border-slate-700">
-                    Select icon
-                    <input
-                      class="hidden"
-                      type="file"
-                      accept="image/*"
-                      @change="onFeedIconSelected"
-                    />
-                  </label>
-                  <button
-                    class="rounded-md border border-slate-300 px-3 py-2 text-xs dark:border-slate-700"
-                    type="button"
-                    @click="clearFeedIcon"
+                <div class="mt-2 flex items-center gap-3">
+                  <img
+                    v-if="feedIconPreview"
+                    :src="feedIconPreview"
+                    alt="Feed icon preview"
+                    class="h-12 w-12 rounded-lg border border-slate-200 object-cover dark:border-slate-700"
+                  />
+                  <div
+                    v-else
+                    class="flex h-12 w-12 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800"
                   >
-                    Clear
-                  </button>
+                    No icon
+                  </div>
+                  <div class="flex gap-2">
+                    <label class="cursor-pointer rounded-md border border-slate-300 px-3 py-2 text-xs dark:border-slate-700">
+                      Select icon
+                      <input
+                        class="hidden"
+                        type="file"
+                        accept="image/*"
+                        @change="onFeedIconSelected"
+                      />
+                    </label>
+                    <button
+                      class="rounded-md border border-slate-300 px-3 py-2 text-xs dark:border-slate-700"
+                      type="button"
+                      @click="clearFeedIcon"
+                    >
+                      Clear
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-              <p class="text-sm font-medium">Automation</p>
-              <label class="mt-2 inline-flex items-center gap-2 text-sm">
-                <input v-model="automation.enabled" type="checkbox" @change="saveAutomation" />
-                Enable automation
-              </label>
-
-              <div class="mt-2 grid gap-2">
-                <label class="text-sm">
-                  Mode
-                  <select v-model="automation.mode" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800" @change="saveAutomation">
-                    <option value="words">Words</option>
-                    <option value="regex">Regular expression</option>
-                  </select>
-                </label>
-
-                <label class="text-sm">
-                  {{ automation.mode === 'words' ? 'Words (comma separated)' : 'Regex pattern' }}
-                  <input
-                    v-model="automation.pattern"
-                    class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
-                    :placeholder="automation.mode === 'words' ? 'vue, typescript, design' : '(vue|nuxt)\\s+3'"
-                    @blur="saveAutomation"
-                  />
-                </label>
-
+            <div class="rounded-lg border border-slate-200 dark:border-slate-700">
+              <button
+                type="button"
+                class="flex w-full items-center justify-between px-3 py-2 text-left"
+                @click="isAutomationOpen = !isAutomationOpen"
+              >
+                <p class="text-sm font-medium">Automation</p>
+                <span class="text-xs text-slate-500">{{ isAutomationOpen ? 'Hide' : 'Show' }}</span>
+              </button>
+              <div v-if="isAutomationOpen" class="border-t border-slate-200 px-3 py-3 dark:border-slate-700">
                 <label class="inline-flex items-center gap-2 text-sm">
-                  <input v-model="automation.caseSensitive" type="checkbox" @change="saveAutomation" />
-                  Case sensitive
+                  <input v-model="automation.enabled" type="checkbox" @change="saveAutomation" />
+                  Enable automation
                 </label>
+
+                <div class="mt-2 grid gap-2">
+                  <label class="text-sm">
+                    Mode
+                    <select v-model="automation.mode" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800" @change="saveAutomation">
+                      <option value="words">Words</option>
+                      <option value="regex">Regular expression</option>
+                    </select>
+                  </label>
+
+                  <label class="text-sm">
+                    {{ automation.mode === 'words' ? 'Words (comma separated)' : 'Regex pattern' }}
+                    <input
+                      v-model="automation.pattern"
+                      class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                      :placeholder="automation.mode === 'words' ? 'vue, typescript, design' : '(vue|nuxt)\\s+3'"
+                      @blur="saveAutomation"
+                    />
+                  </label>
+
+                  <label class="inline-flex items-center gap-2 text-sm">
+                    <input v-model="automation.caseSensitive" type="checkbox" @change="saveAutomation" />
+                    Case sensitive
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -216,8 +201,50 @@
               </p>
               <div class="space-y-2">
                 <article v-for="post in tools.activeFeed.draftPosts" :key="post.uri" class="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
-                  <p class="font-medium">@{{ post.authorHandle }}</p>
+                  <div class="flex items-center gap-3">
+                    <img
+                      v-if="post.authorAvatar"
+                      :src="post.authorAvatar"
+                      :alt="post.authorDisplayName || post.authorHandle"
+                      class="h-9 w-9 rounded-full object-cover"
+                      loading="lazy"
+                      referrerpolicy="no-referrer"
+                    />
+                    <div
+                      v-else
+                      class="flex h-9 w-9 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-100"
+                    >
+                      {{ initials(post.authorDisplayName || post.authorHandle) }}
+                    </div>
+                    <div class="min-w-0">
+                      <p class="truncate font-medium">{{ post.authorDisplayName || post.authorHandle }}</p>
+                      <p class="truncate text-xs text-slate-500">@{{ post.authorHandle }}</p>
+                    </div>
+                  </div>
                   <p class="mt-1 line-clamp-4 whitespace-pre-wrap text-slate-700 dark:text-slate-300">{{ post.text }}</p>
+
+                  <div v-if="post.media?.length" class="mt-2 space-y-2">
+                    <template v-for="(media, index) in post.media" :key="`${post.uri}-${index}-${media.url}`">
+                      <img
+                        v-if="media.type === 'image'"
+                        :src="media.url"
+                        :alt="media.alt || 'Post image'"
+                        class="max-h-72 w-full rounded-md border border-slate-200 object-cover dark:border-slate-700"
+                        loading="lazy"
+                        referrerpolicy="no-referrer"
+                      />
+                      <video
+                        v-else
+                        class="max-h-80 w-full rounded-md border border-slate-200 bg-black dark:border-slate-700"
+                        :ref="(element) => bindVideoElement(element, media.url)"
+                        controls
+                        playsinline
+                        :poster="media.thumb"
+                        preload="metadata"
+                      ></video>
+                    </template>
+                  </div>
+
                   <button class="mt-2 rounded border border-slate-300 px-2 py-1 text-xs dark:border-slate-700" @click="tools.removePostFromActiveFeed(post.uri)">
                     Remove
                   </button>
@@ -226,13 +253,88 @@
             </div>
           </div>
         </section>
+
+        <section class="space-y-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 lg:col-span-4">
+          <h3 class="font-semibold">Search Posts</h3>
+
+          <div class="grid gap-3 md:grid-cols-2">
+            <label class="text-sm">
+              Query
+              <input v-model="query" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800" placeholder="keyword or phrase" />
+            </label>
+            <label class="text-sm">
+              Author handle (optional)
+              <input v-model="author" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800" placeholder="alice.bsky.social" />
+            </label>
+          </div>
+
+          <button class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white dark:bg-slate-100 dark:text-slate-900" @click="search">
+            Search
+          </button>
+          <div class="space-y-2">
+            <article v-for="post in searchResults" :key="post.uri" class="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
+              <div class="flex items-center gap-3">
+                <img
+                  v-if="post.authorAvatar"
+                  :src="post.authorAvatar"
+                  :alt="post.authorDisplayName || post.authorHandle"
+                  class="h-9 w-9 rounded-full object-cover"
+                  loading="lazy"
+                  referrerpolicy="no-referrer"
+                />
+                <div
+                  v-else
+                  class="flex h-9 w-9 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-100"
+                >
+                  {{ initials(post.authorDisplayName || post.authorHandle) }}
+                </div>
+                <div class="min-w-0">
+                  <p class="truncate font-medium">{{ post.authorDisplayName || post.authorHandle }}</p>
+                  <p class="truncate text-xs text-slate-500">@{{ post.authorHandle }}</p>
+                </div>
+              </div>
+              <p class="mt-1 whitespace-pre-wrap text-slate-700 dark:text-slate-300">{{ post.text || '(No text content)' }}</p>
+
+              <div v-if="post.media?.length" class="mt-2 space-y-2">
+                <template v-for="(media, index) in post.media" :key="`${post.uri}-${index}-${media.url}`">
+                  <img
+                    v-if="media.type === 'image'"
+                    :src="media.url"
+                    :alt="media.alt || 'Post image'"
+                    class="max-h-72 w-full rounded-md border border-slate-200 object-cover dark:border-slate-700"
+                    loading="lazy"
+                    referrerpolicy="no-referrer"
+                  />
+                  <video
+                    v-else
+                    class="max-h-80 w-full rounded-md border border-slate-200 bg-black dark:border-slate-700"
+                    :ref="(element) => bindVideoElement(element, media.url)"
+                    controls
+                    playsinline
+                    :poster="media.thumb"
+                    preload="metadata"
+                  ></video>
+                </template>
+              </div>
+
+              <button
+                class="mt-3 rounded border px-2 py-1 text-xs"
+                :class="tools.isPostInActiveFeed(post.uri) ? 'border-rose-400 text-rose-700 dark:border-rose-700 dark:text-rose-300' : 'border-slate-300 dark:border-slate-700'"
+                @click="togglePost(post)"
+              >
+                {{ tools.isPostInActiveFeed(post.uri) ? 'Remove from feed' : 'Add to feed' }}
+              </button>
+            </article>
+          </div>
+        </section>
       </div>
     </section>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import type { ComponentPublicInstance } from 'vue';
+import { onBeforeUnmount, ref, watch } from 'vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { useToolsStore } from '@/stores/tools';
 import type { CuratedPost, FeedAutomationConfig } from '@/types/bluesky';
@@ -246,7 +348,12 @@ const renameValue = ref(tools.activeFeed?.name ?? '');
 const automation = ref<FeedAutomationConfig>(cloneAutomation());
 const feedDescription = ref(tools.activeFeed?.description ?? '');
 const feedIconPreview = ref<string | undefined>(tools.activeFeed?.iconDataUrl);
+const isDetailsOpen = ref(false);
+const isAutomationOpen = ref(false);
 const uiError = ref('');
+let hlsLoaderPromise: Promise<any | null> | null = null;
+const hlsInstances = new Map<HTMLVideoElement, { destroy: () => void }>();
+const boundVideoUrls = new WeakMap<HTMLVideoElement, string>();
 
 watch(
   () => tools.activeFeedId,
@@ -258,6 +365,11 @@ watch(
   },
   { immediate: true },
 );
+
+onBeforeUnmount(() => {
+  hlsInstances.forEach((instance) => instance.destroy());
+  hlsInstances.clear();
+});
 
 async function search() {
   searchResults.value = await tools.searchPosts(query.value, author.value || undefined);
@@ -594,9 +706,83 @@ function clearFeedIcon() {
   saveFeedDetails();
 }
 
+function isHlsPlaylist(url: string) {
+  return /\.m3u8($|\?)/i.test(url);
+}
+
+function cleanupVideoElement(element: HTMLVideoElement) {
+  const existing = hlsInstances.get(element);
+  if (existing) {
+    existing.destroy();
+    hlsInstances.delete(element);
+  }
+}
+
+async function ensureHlsModule() {
+  if (!hlsLoaderPromise) {
+    hlsLoaderPromise = loadHlsFromCdn();
+  }
+  return hlsLoaderPromise;
+}
+
+async function attachVideoSource(element: HTMLVideoElement, url: string) {
+  boundVideoUrls.set(element, url);
+  cleanupVideoElement(element);
+
+  if (!isHlsPlaylist(url)) {
+    element.src = url;
+    return;
+  }
+
+  const Hls = await ensureHlsModule();
+  if (Hls && boundVideoUrls.get(element) === url) {
+    if (Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(url);
+      hls.attachMedia(element);
+      hlsInstances.set(element, hls);
+      return;
+    }
+  }
+
+  if (element.canPlayType('application/vnd.apple.mpegurl')) {
+    element.src = url;
+    return;
+  }
+
+  element.removeAttribute('src');
+  element.load();
+}
+
+function bindVideoElement(element: Element | ComponentPublicInstance | null, url: string) {
+  if (!(element instanceof HTMLVideoElement)) return;
+  const currentUrl = boundVideoUrls.get(element);
+  if (currentUrl === url) return;
+  void attachVideoSource(element, url);
+}
+
+function loadHlsFromCdn(): Promise<any | null> {
+  if (typeof window === 'undefined') return Promise.resolve(null);
+  if ((window as any).Hls) return Promise.resolve((window as any).Hls);
+
+  return new Promise((resolve) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.18/dist/hls.min.js';
+    script.async = true;
+    script.onload = () => resolve((window as any).Hls ?? null);
+    script.onerror = () => resolve(null);
+    document.head.appendChild(script);
+  });
+}
+
 function formatDateTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
 }
+
+function initials(name: string) {
+  return name.trim().charAt(0).toUpperCase() || '?';
+}
+
 </script>

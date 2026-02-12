@@ -240,8 +240,7 @@ export const useToolsStore = defineStore('tools', () => {
         }
         curatedFeeds.value = curatedFeeds.value.filter((feed) => feed.id !== feedId);
         if (!curatedFeeds.value.length) {
-            const fallback = createFeed('Default Feed');
-            activeFeedId.value = fallback?.id ?? null;
+            activeFeedId.value = null;
             return;
         }
         if (activeFeedId.value === feedId) {
@@ -476,25 +475,7 @@ function loadInitialFeeds() {
     if (stored?.length) {
         return stored.map(normalizeStoredFeed);
     }
-    const now = new Date().toISOString();
-    return [
-        {
-            id: generateId(),
-            name: 'Default Feed',
-            description: '',
-            publishedDescription: '',
-            iconDataUrl: undefined,
-            publishedIconDataUrl: undefined,
-            automation: { ...DEFAULT_AUTOMATION },
-            publishedAutomation: { ...DEFAULT_AUTOMATION },
-            draftPosts: [],
-            publishedPosts: [],
-            isDirty: false,
-            lastPublishError: null,
-            createdAt: now,
-            updatedAt: now,
-        },
-    ];
+    return [];
 }
 function normalizeStoredFeed(feed) {
     const publishedAutomation = feed.publishedAutomation ?? { ...feed.automation };

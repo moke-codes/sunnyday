@@ -2,6 +2,7 @@ import { BskyAgent } from '@atproto/api';
 import type {
   ActorSearchResult,
   BskyList,
+  CuratedPostMedia,
   ListMember,
   OperationResult,
   StarterPack,
@@ -258,14 +259,95 @@ class BlueskyClient {
       limit: 50,
       sort: 'latest',
     });
+    const rawEntries: any[] = response.data?.posts ?? [];
+    const rawPosts: any[] = rawEntries.map((entry) => unwrapSearchEntryPost(entry)).filter(Boolean);
+    const hydratedByUri = await this.hydratePostsByUri(rawPosts.map((post) => post.uri).filter(Boolean));
+    const profileByActor = await this.hydrateProfilesByActor(
+      rawPosts.flatMap((post) => {
+        const hydrated = hydratedByUri.get(post?.uri) ?? post;
+        const actors = [
+          post?.author?.did,
+          post?.author?.handle,
+          hydrated?.author?.did,
+          hydrated?.author?.handle,
+          extractDidFromAtUri(post?.uri),
+          extractDidFromAtUri(hydrated?.uri),
+        ];
+        return actors.filter((value): value is string => typeof value === 'string' && value.length > 0);
+      }),
+    );
 
-    return (response.data?.posts ?? []).map((post: any) => ({
-      uri: post.uri,
-      cid: post.cid,
-      text: post.record?.text ?? '',
-      authorHandle: post.author?.handle ?? 'unknown',
-      createdAt: post.record?.createdAt ?? new Date().toISOString(),
-    }));
+    const normalizedPosts = rawPosts.map((rawPost: any) => {
+      const post = hydratedByUri.get(rawPost.uri) ?? rawPost;
+      return normalizePostView(rawPost, post, profileByActor);
+    });
+
+    return normalizedPosts;
+  }
+
+  private async hydratePostsByUri(uris: string[]) {
+    const api: any = this.agent.api;
+    const result = new Map<string, any>();
+    if (!uris.length) return result;
+
+    const chunkSize = 25;
+    for (let i = 0; i < uris.length; i += chunkSize) {
+      const batch = uris.slice(i, i + chunkSize);
+      try {
+        const response = await api.app.bsky.feed.getPosts({ uris: batch });
+        for (const post of response.data?.posts ?? []) {
+          if (post?.uri) {
+            result.set(post.uri, post);
+          }
+        }
+      } catch {
+        // Keep base search payload when hydration fails.
+      }
+    }
+    return result;
+  }
+
+  private async hydrateProfilesByActor(actors: string[]) {
+    const api: any = this.agent.api;
+    const result = new Map<string, any>();
+    const uniqueActors = [...new Set(actors)];
+    if (!uniqueActors.length) return result;
+
+    const chunkSize = 25;
+    for (let i = 0; i < uniqueActors.length; i += chunkSize) {
+      const batch = uniqueActors.slice(i, i + chunkSize);
+      try {
+        const response = await api.app.bsky.actor.getProfiles({ actors: batch });
+        for (const profile of response.data?.profiles ?? []) {
+          if (profile?.did) {
+            result.set(profile.did, profile);
+          }
+          if (profile?.handle) {
+            result.set(profile.handle, profile);
+          }
+        }
+      } catch {
+        // Keep base author payload when profile hydration fails.
+      }
+    }
+
+    // Fallback: if batch endpoint is partial/unavailable, fetch remaining profiles one-by-one.
+    const missing = uniqueActors.filter((actor) => !result.has(actor));
+    for (const actor of missing) {
+      try {
+        const response = await this.agent.getProfile({ actor });
+        if (response.data?.did) {
+          result.set(response.data.did, response.data);
+        }
+        if (response.data?.handle) {
+          result.set(response.data.handle, response.data);
+        }
+      } catch {
+        // Ignore individual profile failures.
+      }
+    }
+
+    return result;
   }
 
   async publishFeedGenerator(payload: PublishFeedGeneratorPayload) {
@@ -415,6 +497,178 @@ function dedupeMembers(members: ListMember[]) {
     output.push(member);
   }
   return output;
+}
+
+function normalizePostView(
+  rawPost: any,
+  hydratedPost: any,
+  profileByActor: Map<string, any>,
+) {
+  const post = hydratedPost ?? rawPost;
+  const authorDid =
+    post?.author?.did ??
+    rawPost?.author?.did ??
+    extractDidFromAtUri(post?.uri) ??
+    extractDidFromAtUri(rawPost?.uri);
+  const authorHandle = post?.author?.handle ?? rawPost?.author?.handle;
+  const profile = (authorDid && profileByActor.get(authorDid)) || (authorHandle && profileByActor.get(authorHandle));
+  const mergedAuthor = {
+    ...rawPost?.author,
+    ...post?.author,
+    did: profile?.did ?? post?.author?.did ?? rawPost?.author?.did ?? authorDid,
+    displayName: profile?.displayName ?? post?.author?.displayName ?? rawPost?.author?.displayName,
+    avatar: profile?.avatar ?? post?.author?.avatar ?? rawPost?.author?.avatar,
+    handle: post?.author?.handle ?? rawPost?.author?.handle,
+  };
+  const normalized = {
+    uri: post.uri,
+    cid: post.cid,
+    text: post.record?.text ?? '',
+    authorDisplayName: normalizeAuthorDisplayName(mergedAuthor),
+    authorHandle: mergedAuthor?.handle ?? 'unknown',
+    authorAvatar: normalizeAuthorAvatar(mergedAuthor),
+    media: extractMediaFromPost(post, authorDid),
+    createdAt: post.record?.createdAt ?? new Date().toISOString(),
+  };
+  return normalized;
+}
+
+function extractMediaFromPost(post: any, authorDid?: string): CuratedPostMedia[] {
+  const resolvedDid: string | undefined = authorDid ?? post?.author?.did ?? extractDidFromAtUri(post?.uri);
+  const fromView = extractMediaFromEmbed(post?.embed, resolvedDid);
+  if (fromView.length) return fromView;
+  return extractMediaFromEmbed(post?.record?.embed, resolvedDid);
+}
+
+function extractMediaFromEmbed(embed: unknown, authorDid?: string): CuratedPostMedia[] {
+  const root = asRecord(embed);
+  if (!root) return [];
+
+  const type = asString(root.$type) ?? '';
+
+  if (type.includes('recordWithMedia')) {
+    return extractMediaFromEmbed(root.media, authorDid);
+  }
+
+  if (type.includes('images')) {
+    const images = Array.isArray(root.images) ? root.images : [];
+    const parsed: CuratedPostMedia[] = [];
+    images.forEach((image) => {
+      const item = asRecord(image);
+      if (!item) return;
+      const fullsize = asString(item.fullsize);
+      const thumb = asString(item.thumb);
+      const blobCid = getBlobCid(item.image);
+      const blobUrl = blobCid && authorDid
+        ? `https://cdn.bsky.app/img/feed_fullsize/plain/${authorDid}/${blobCid}@jpeg`
+        : undefined;
+      const blobThumb = blobCid && authorDid
+        ? `https://cdn.bsky.app/img/feed_thumbnail/plain/${authorDid}/${blobCid}@jpeg`
+        : undefined;
+      const url = fullsize ?? thumb ?? blobUrl;
+      if (!url) return;
+      parsed.push({
+        type: 'image',
+        url,
+        thumb: thumb ?? fullsize ?? blobThumb,
+        alt: asString(item.alt),
+      });
+    });
+    return parsed;
+  }
+
+  if (type.includes('video')) {
+    const playlist = asString(root.playlist);
+    const uri = asString(root.uri);
+    const cid = asString(root.cid);
+    const blobCid = getBlobCid(root.video);
+    const blobPlaylist = blobCid && authorDid
+      ? `https://video.bsky.app/watch/${authorDid}/${blobCid}/playlist.m3u8`
+      : undefined;
+    const blobThumb = blobCid && authorDid
+      ? `https://video.bsky.app/watch/${authorDid}/${blobCid}/thumbnail.jpg`
+      : undefined;
+    const url = playlist ?? uri ?? cid ?? blobPlaylist;
+    if (!url) return [];
+    return [
+      {
+        type: 'video',
+        url,
+        thumb: asString(root.thumbnail) ?? blobThumb,
+        alt: asString(root.alt),
+      },
+    ];
+  }
+
+  if (type.includes('external')) {
+    const external = asRecord(root.external);
+    const thumb = asString(external?.thumb);
+    if (!thumb) return [];
+    return [
+      {
+        type: 'image',
+        url: thumb,
+        thumb,
+        alt: asString(external?.title),
+      },
+    ];
+  }
+
+  if (root.media) {
+    return extractMediaFromEmbed(root.media, authorDid);
+  }
+
+  return [];
+}
+
+function normalizeAuthorDisplayName(author: any) {
+  const display = asString(author?.displayName);
+  if (display) return display;
+  const handle = asString(author?.handle);
+  if (handle) return handle.split('.')[0];
+  return 'Unknown';
+}
+
+function normalizeAuthorAvatar(author: any) {
+  const direct = asString(author?.avatar);
+  if (direct) return direct;
+  const did = asString(author?.did);
+  const cid = getBlobCid(author?.avatar);
+  if (did && cid) {
+    return `https://cdn.bsky.app/img/avatar/plain/${did}/${cid}@jpeg`;
+  }
+  return undefined;
+}
+
+function getBlobCid(blob: unknown) {
+  const record = asRecord(blob);
+  if (!record) return undefined;
+  const ref = asRecord(record.ref);
+  return asString(ref?.$link) ?? asString(record.cid) ?? asString(record.$link);
+}
+
+function extractDidFromAtUri(uri: unknown) {
+  const value = asString(uri);
+  if (!value) return undefined;
+  const match = value.match(/^at:\/\/(did:[^/]+)\//);
+  return match?.[1];
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object') return null;
+  return value as Record<string, unknown>;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function unwrapSearchEntryPost(entry: any) {
+  const candidate = asRecord(entry);
+  if (!candidate) return null;
+  const nested = asRecord(candidate.post);
+  if (nested) return nested;
+  return candidate;
 }
 
 export const blueskyClient = new BlueskyClient();

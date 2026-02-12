@@ -45,10 +45,20 @@ export interface CuratedPost {
   uri: string;
   cid?: string;
   text: string;
+  authorDisplayName?: string;
   authorHandle: string;
+  authorAvatar?: string;
+  media?: CuratedPostMedia[];
   createdAt: string;
   approved?: boolean;
   expiresAt?: string;
+}
+
+export interface CuratedPostMedia {
+  type: 'image' | 'video';
+  url: string;
+  thumb?: string;
+  alt?: string;
 }
 
 export interface FeedAutomationConfig {
