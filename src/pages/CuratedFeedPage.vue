@@ -50,7 +50,7 @@
             </label>
             <div class="flex gap-2">
               <button class="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700" @click="renameActiveFeed">Rename</button>
-              <button class="rounded-md border border-rose-400 px-3 py-2 text-sm text-rose-700 dark:border-rose-700 dark:text-rose-300" @click="deleteActiveFeed">Delete</button>
+              <button class="rounded-md border border-rose-400 px-3 py-2 text-sm text-rose-700 dark:border-rose-700 dark:text-rose-300" @click="promptDeleteActiveFeed">Delete</button>
             </div>
           </div>
         </aside>
@@ -196,9 +196,18 @@
             </div>
 
             <div>
-              <p class="mb-2 text-sm font-medium">
-                Draft curated posts ({{ tools.activeFeed.draftPosts.length }})
-              </p>
+              <div class="mb-2 flex items-center justify-between gap-3">
+                <p class="text-sm font-medium">
+                  Draft curated posts ({{ tools.activeFeed.draftPosts.length }})
+                </p>
+                <button
+                  class="text-xs text-rose-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50 dark:text-rose-400"
+                  :disabled="!tools.activeFeed.draftPosts.length"
+                  @click="clearAllDraftPosts"
+                >
+                  Remove all
+                </button>
+              </div>
               <div class="space-y-2">
                 <article v-for="post in tools.activeFeed.draftPosts" :key="post.uri" class="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
                   <div class="flex items-center gap-3">
@@ -264,7 +273,60 @@
             </label>
             <label class="text-sm">
               Author handle (optional)
-              <input v-model="author" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800" placeholder="alice.bsky.social" />
+              <div ref="authorSearchContainer" class="relative mt-1">
+                <input
+                  v-model="author"
+                  class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                  placeholder="alice.bsky.social"
+                  @focus="openAuthorDropdown"
+                  @keydown.down.prevent="moveAuthorHighlight(1)"
+                  @keydown.up.prevent="moveAuthorHighlight(-1)"
+                  @keydown.enter.prevent="selectHighlightedAuthor"
+                  @keydown.esc.prevent="closeAuthorDropdown"
+                />
+
+                <div
+                  v-if="showAuthorDropdown"
+                  class="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
+                >
+                  <div v-if="isSearchingAuthors" class="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+                    Searching...
+                  </div>
+                  <button
+                    v-for="actor in tools.actorSearchResults"
+                    :key="actor.did"
+                    type="button"
+                    class="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
+                    :class="{ 'bg-slate-50 dark:bg-slate-800': actor.did === highlightedAuthorDid }"
+                    @click="selectAuthor(actor)"
+                    @mouseenter="highlightedAuthorIndex = tools.actorSearchResults.findIndex((item) => item.did === actor.did)"
+                  >
+                    <img
+                      v-if="actor.avatar"
+                      :src="actor.avatar"
+                      :alt="actor.displayName || actor.handle"
+                      class="h-8 w-8 rounded-full object-cover"
+                      loading="lazy"
+                    />
+                    <div
+                      v-else
+                      class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-100"
+                    >
+                      {{ initials(actor.displayName || actor.handle) }}
+                    </div>
+                    <div class="min-w-0">
+                      <p class="truncate font-medium">{{ actor.displayName || actor.handle }}</p>
+                      <p class="truncate text-xs text-slate-500">@{{ actor.handle }}</p>
+                    </div>
+                  </button>
+                  <div
+                    v-if="!isSearchingAuthors && author.trim().length >= 2 && !tools.actorSearchResults.length"
+                    class="px-3 py-2 text-xs text-slate-500 dark:text-slate-400"
+                  >
+                    No users found.
+                  </div>
+                </div>
+              </div>
             </label>
           </div>
 
@@ -345,16 +407,42 @@
           </div>
         </section>
       </div>
+
+      <div
+        v-if="showDeleteFeedModal"
+        class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 px-4"
+        @click.self="cancelDeleteFeed"
+      >
+        <div class="w-full max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+          <h4 class="text-base font-semibold">Delete Feed?</h4>
+          <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            This will delete <span class="font-medium">{{ tools.activeFeed?.name || 'this feed' }}</span>.
+            If published, we will also attempt to remove it from Bluesky.
+          </p>
+          <div class="mt-4 flex justify-end gap-2">
+            <button class="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700" @click="cancelDeleteFeed">
+              Cancel
+            </button>
+            <button
+              class="rounded-md border border-rose-500 px-3 py-2 text-sm text-rose-700 disabled:opacity-50 dark:border-rose-700 dark:text-rose-300"
+              :disabled="tools.loading"
+              @click="confirmDeleteActiveFeed"
+            >
+              {{ tools.loading ? 'Deleting...' : 'Delete feed' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </section>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue';
-import { onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { useToolsStore } from '@/stores/tools';
-import type { CuratedPost, FeedAutomationConfig } from '@/types/bluesky';
+import type { ActorSearchResult, CuratedPost, FeedAutomationConfig } from '@/types/bluesky';
 
 const tools = useToolsStore();
 const query = ref('');
@@ -363,6 +451,11 @@ const searchResults = ref<CuratedPost[]>([]);
 const searchCursor = ref<string | null>(null);
 const hasMoreSearchResults = ref(false);
 const isLoadingMore = ref(false);
+const authorSearchContainer = ref<HTMLElement | null>(null);
+const isAuthorDropdownOpen = ref(false);
+const isSearchingAuthors = ref(false);
+const highlightedAuthorIndex = ref(-1);
+let authorSearchTimer: number | undefined;
 const newFeedName = ref('');
 const renameValue = ref(tools.activeFeed?.name ?? '');
 const automation = ref<FeedAutomationConfig>(cloneAutomation());
@@ -371,10 +464,20 @@ const feedIconPreview = ref<string | undefined>(tools.activeFeed?.iconDataUrl);
 const isDetailsOpen = ref(false);
 const isAutomationOpen = ref(false);
 const isSearching = ref(false);
+const showDeleteFeedModal = ref(false);
 const uiError = ref('');
 let hlsLoaderPromise: Promise<any | null> | null = null;
 const hlsInstances = new Map<HTMLVideoElement, { destroy: () => void }>();
 const boundVideoUrls = new WeakMap<HTMLVideoElement, string>();
+const showAuthorDropdown = computed(() => {
+  if (!isAuthorDropdownOpen.value) return false;
+  if (isSearchingAuthors.value) return true;
+  return author.value.trim().length >= 2;
+});
+const highlightedAuthorDid = computed(() => {
+  const actor = tools.actorSearchResults[highlightedAuthorIndex.value];
+  return actor?.did;
+});
 
 watch(
   () => tools.activeFeedId,
@@ -387,9 +490,40 @@ watch(
   { immediate: true },
 );
 
+onMounted(() => {
+  document.addEventListener('click', onDocumentClick);
+});
+
 onBeforeUnmount(() => {
+  if (authorSearchTimer) window.clearTimeout(authorSearchTimer);
+  document.removeEventListener('click', onDocumentClick);
   hlsInstances.forEach((instance) => instance.destroy());
   hlsInstances.clear();
+});
+
+watch(author, (value) => {
+  const queryValue = value.trim();
+  if (authorSearchTimer) window.clearTimeout(authorSearchTimer);
+
+  if (queryValue.length < 2) {
+    tools.actorSearchResults = [];
+    isSearchingAuthors.value = false;
+    highlightedAuthorIndex.value = -1;
+    return;
+  }
+
+  isSearchingAuthors.value = true;
+  authorSearchTimer = window.setTimeout(async () => {
+    try {
+      await tools.searchActors(queryValue);
+      highlightedAuthorIndex.value = tools.actorSearchResults.length ? 0 : -1;
+    } catch {
+      tools.actorSearchResults = [];
+      highlightedAuthorIndex.value = -1;
+    } finally {
+      isSearchingAuthors.value = false;
+    }
+  }, 300);
 });
 
 async function search() {
@@ -458,6 +592,7 @@ function renameActiveFeed() {
 }
 
 async function deleteActiveFeed() {
+  showDeleteFeedModal.value = false;
   if (!tools.activeFeed) return;
   uiError.value = '';
   const deleteFeedFn = (tools as any).deleteFeed as ((feedId: string) => Promise<void> | void) | undefined;
@@ -473,6 +608,30 @@ async function deleteActiveFeed() {
   }
   renameValue.value = tools.activeFeed?.name ?? '';
   automation.value = cloneAutomation();
+}
+
+function promptDeleteActiveFeed() {
+  if (!tools.activeFeed) return;
+  showDeleteFeedModal.value = true;
+}
+
+function cancelDeleteFeed() {
+  showDeleteFeedModal.value = false;
+}
+
+async function confirmDeleteActiveFeed() {
+  await deleteActiveFeed();
+}
+
+function clearAllDraftPosts() {
+  if (!tools.activeFeed?.draftPosts.length) return;
+  uiError.value = '';
+  const clearDraftFn = (tools as any).clearActiveFeedDraftPosts as (() => void) | undefined;
+  if (typeof clearDraftFn === 'function') {
+    clearDraftFn();
+    return;
+  }
+  fallbackClearAllDraftPosts();
 }
 
 function saveAutomation() {
@@ -672,6 +831,20 @@ function fallbackRemovePost(uri: string) {
   );
 }
 
+function fallbackClearAllDraftPosts() {
+  if (!tools.activeFeed || !Array.isArray((tools as any).curatedFeeds)) return;
+  (tools as any).curatedFeeds = (tools as any).curatedFeeds.map((feed: any) =>
+    feed.id === tools.activeFeed?.id
+      ? {
+          ...feed,
+          draftPosts: [],
+          isDirty: true,
+          updatedAt: new Date().toISOString(),
+        }
+      : feed,
+  );
+}
+
 function publishActiveFeed() {
   if (!tools.activeFeed) return;
   uiError.value = '';
@@ -828,6 +1001,53 @@ function loadHlsFromCdn(): Promise<any | null> {
     script.onerror = () => resolve(null);
     document.head.appendChild(script);
   });
+}
+
+function openAuthorDropdown() {
+  isAuthorDropdownOpen.value = true;
+}
+
+function closeAuthorDropdown() {
+  isAuthorDropdownOpen.value = false;
+}
+
+function moveAuthorHighlight(step: number) {
+  if (!isAuthorDropdownOpen.value) {
+    isAuthorDropdownOpen.value = true;
+  }
+  const count = tools.actorSearchResults.length;
+  if (!count) return;
+
+  const next = highlightedAuthorIndex.value + step;
+  if (next < 0) {
+    highlightedAuthorIndex.value = count - 1;
+    return;
+  }
+  if (next >= count) {
+    highlightedAuthorIndex.value = 0;
+    return;
+  }
+  highlightedAuthorIndex.value = next;
+}
+
+async function selectAuthor(actor: ActorSearchResult) {
+  author.value = actor.handle;
+  isAuthorDropdownOpen.value = false;
+}
+
+async function selectHighlightedAuthor() {
+  if (!showAuthorDropdown.value) return;
+  const actor = tools.actorSearchResults[highlightedAuthorIndex.value];
+  if (!actor) return;
+  await selectAuthor(actor);
+}
+
+function onDocumentClick(event: MouseEvent) {
+  const container = authorSearchContainer.value;
+  if (!container) return;
+  if (!container.contains(event.target as Node)) {
+    closeAuthorDropdown();
+  }
 }
 
 function formatDateTime(value: string) {

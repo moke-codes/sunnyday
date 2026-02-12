@@ -336,6 +336,22 @@ export const useToolsStore = defineStore('tools', () => {
     });
   }
 
+  function clearActiveFeedDraftPosts() {
+    const feed = activeFeed.value;
+    if (!feed) return;
+
+    curatedFeeds.value = curatedFeeds.value.map((item) => {
+      if (item.id !== feed.id) return item;
+      const draftPosts: CuratedPost[] = [];
+      return {
+        ...item,
+        draftPosts,
+        isDirty: calculateFeedDirty({ ...item, draftPosts }),
+        updatedAt: new Date().toISOString(),
+      };
+    });
+  }
+
   function publishActiveFeed() {
     const feed = activeFeed.value;
     if (!feed) return;
@@ -493,6 +509,7 @@ export const useToolsStore = defineStore('tools', () => {
     isPostInActiveFeed,
     addPostToActiveFeed,
     removePostFromActiveFeed,
+    clearActiveFeedDraftPosts,
     publishActiveFeed,
     publishActiveFeedToBluesky,
     pushActiveFeedContentsOnly,
