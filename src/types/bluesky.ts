@@ -54,6 +54,11 @@ export interface CuratedPost {
   expiresAt?: string;
 }
 
+export interface CuratedPostSearchPage {
+  posts: CuratedPost[];
+  cursor: string | null;
+}
+
 export interface CuratedPostMedia {
   type: 'image' | 'video';
   url: string;

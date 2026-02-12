@@ -5,6 +5,9 @@ const tools = useToolsStore();
 const query = ref('');
 const author = ref('');
 const searchResults = ref([]);
+const searchCursor = ref(null);
+const hasMoreSearchResults = ref(false);
+const isLoadingMore = ref(false);
 const newFeedName = ref('');
 const renameValue = ref(tools.activeFeed?.name ?? '');
 const automation = ref(cloneAutomation());
@@ -12,6 +15,7 @@ const feedDescription = ref(tools.activeFeed?.description ?? '');
 const feedIconPreview = ref(tools.activeFeed?.iconDataUrl);
 const isDetailsOpen = ref(false);
 const isAutomationOpen = ref(false);
+const isSearching = ref(false);
 const uiError = ref('');
 let hlsLoaderPromise = null;
 const hlsInstances = new Map();
@@ -27,7 +31,44 @@ onBeforeUnmount(() => {
     hlsInstances.clear();
 });
 async function search() {
-    searchResults.value = await tools.searchPosts(query.value, author.value || undefined);
+    isSearching.value = true;
+    try {
+        searchCursor.value = null;
+        const page = await tools.searchPosts(query.value, author.value || undefined);
+        searchResults.value = page.posts;
+        searchCursor.value = page.cursor;
+        hasMoreSearchResults.value = Boolean(page.cursor);
+    }
+    finally {
+        isSearching.value = false;
+    }
+}
+async function loadMoreSearchResults() {
+    if (!hasMoreSearchResults.value || !searchCursor.value)
+        return;
+    if (isSearching.value || isLoadingMore.value)
+        return;
+    isLoadingMore.value = true;
+    try {
+        const page = await tools.searchPosts(query.value, author.value || undefined, searchCursor.value);
+        const seen = new Set(searchResults.value.map((post) => post.uri));
+        const next = page.posts.filter((post) => !seen.has(post.uri));
+        searchResults.value = [...searchResults.value, ...next];
+        searchCursor.value = page.cursor;
+        hasMoreSearchResults.value = Boolean(page.cursor);
+    }
+    finally {
+        isLoadingMore.value = false;
+    }
+}
+function onSearchResultsScroll(event) {
+    const target = event.target;
+    if (!(target instanceof HTMLElement))
+        return;
+    const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (remaining < 180) {
+        void loadMoreSearchResults();
+    }
 }
 function createFeed() {
     uiError.value = '';
@@ -797,10 +838,18 @@ __VLS_asFunctionalElement(__VLS_intrinsicElements.input)({
 (__VLS_ctx.author);
 __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
     ...{ onClick: (__VLS_ctx.search) },
-    ...{ class: "rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white dark:bg-slate-100 dark:text-slate-900" },
+    ...{ class: "rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-70 dark:bg-slate-100 dark:text-slate-900" },
+    disabled: (__VLS_ctx.isSearching),
 });
+(__VLS_ctx.isSearching ? 'Searching...' : 'Search');
+if (__VLS_ctx.isSearching) {
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({
+        ...{ class: "text-sm text-slate-600 dark:text-slate-300" },
+    });
+}
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "space-y-2" },
+    ...{ onScroll: (__VLS_ctx.onSearchResultsScroll) },
+    ...{ class: "max-h-[70vh] space-y-2 overflow-y-auto pr-1" },
 });
 for (const [post] of __VLS_getVForSourceType((__VLS_ctx.searchResults))) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.article, __VLS_intrinsicElements.article)({
@@ -875,6 +924,16 @@ for (const [post] of __VLS_getVForSourceType((__VLS_ctx.searchResults))) {
         ...{ class: (__VLS_ctx.tools.isPostInActiveFeed(post.uri) ? 'border-rose-400 text-rose-700 dark:border-rose-700 dark:text-rose-300' : 'border-slate-300 dark:border-slate-700') },
     });
     (__VLS_ctx.tools.isPostInActiveFeed(post.uri) ? 'Remove from feed' : 'Add to feed');
+}
+if (__VLS_ctx.isLoadingMore) {
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({
+        ...{ class: "py-2 text-center text-xs text-slate-500" },
+    });
+}
+else if (__VLS_ctx.searchResults.length && !__VLS_ctx.hasMoreSearchResults) {
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({
+        ...{ class: "py-2 text-center text-xs text-slate-500" },
+    });
 }
 var __VLS_2;
 /** @type {__VLS_StyleScopedClasses['space-y-5']} */ ;
@@ -1258,9 +1317,17 @@ var __VLS_2;
 /** @type {__VLS_StyleScopedClasses['text-sm']} */ ;
 /** @type {__VLS_StyleScopedClasses['font-medium']} */ ;
 /** @type {__VLS_StyleScopedClasses['text-white']} */ ;
+/** @type {__VLS_StyleScopedClasses['disabled:cursor-not-allowed']} */ ;
+/** @type {__VLS_StyleScopedClasses['disabled:opacity-70']} */ ;
 /** @type {__VLS_StyleScopedClasses['dark:bg-slate-100']} */ ;
 /** @type {__VLS_StyleScopedClasses['dark:text-slate-900']} */ ;
+/** @type {__VLS_StyleScopedClasses['text-sm']} */ ;
+/** @type {__VLS_StyleScopedClasses['text-slate-600']} */ ;
+/** @type {__VLS_StyleScopedClasses['dark:text-slate-300']} */ ;
+/** @type {__VLS_StyleScopedClasses['max-h-[70vh]']} */ ;
 /** @type {__VLS_StyleScopedClasses['space-y-2']} */ ;
+/** @type {__VLS_StyleScopedClasses['overflow-y-auto']} */ ;
+/** @type {__VLS_StyleScopedClasses['pr-1']} */ ;
 /** @type {__VLS_StyleScopedClasses['rounded-lg']} */ ;
 /** @type {__VLS_StyleScopedClasses['border']} */ ;
 /** @type {__VLS_StyleScopedClasses['border-slate-200']} */ ;
@@ -1318,6 +1385,14 @@ var __VLS_2;
 /** @type {__VLS_StyleScopedClasses['px-2']} */ ;
 /** @type {__VLS_StyleScopedClasses['py-1']} */ ;
 /** @type {__VLS_StyleScopedClasses['text-xs']} */ ;
+/** @type {__VLS_StyleScopedClasses['py-2']} */ ;
+/** @type {__VLS_StyleScopedClasses['text-center']} */ ;
+/** @type {__VLS_StyleScopedClasses['text-xs']} */ ;
+/** @type {__VLS_StyleScopedClasses['text-slate-500']} */ ;
+/** @type {__VLS_StyleScopedClasses['py-2']} */ ;
+/** @type {__VLS_StyleScopedClasses['text-center']} */ ;
+/** @type {__VLS_StyleScopedClasses['text-xs']} */ ;
+/** @type {__VLS_StyleScopedClasses['text-slate-500']} */ ;
 var __VLS_dollars;
 const __VLS_self = (await import('vue')).defineComponent({
     setup() {
@@ -1327,6 +1402,8 @@ const __VLS_self = (await import('vue')).defineComponent({
             query: query,
             author: author,
             searchResults: searchResults,
+            hasMoreSearchResults: hasMoreSearchResults,
+            isLoadingMore: isLoadingMore,
             newFeedName: newFeedName,
             renameValue: renameValue,
             automation: automation,
@@ -1334,8 +1411,10 @@ const __VLS_self = (await import('vue')).defineComponent({
             feedIconPreview: feedIconPreview,
             isDetailsOpen: isDetailsOpen,
             isAutomationOpen: isAutomationOpen,
+            isSearching: isSearching,
             uiError: uiError,
             search: search,
+            onSearchResultsScroll: onSearchResultsScroll,
             createFeed: createFeed,
             renameActiveFeed: renameActiveFeed,
             deleteActiveFeed: deleteActiveFeed,

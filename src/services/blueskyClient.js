@@ -200,13 +200,17 @@ class BlueskyClient {
             listUri,
         };
     }
-    async searchPosts(query, author) {
+    async searchPosts(query, author, cursor) {
         const api = this.agent.api;
-        const finalQuery = author ? `from:${author} ${query}`.trim() : query;
+        const finalQuery = author ? `from:${author} ${query}`.trim() : query.trim();
+        if (!finalQuery) {
+            return { posts: [], cursor: null };
+        }
         const response = await api.app.bsky.feed.searchPosts({
             q: finalQuery,
             limit: 50,
             sort: 'latest',
+            cursor,
         });
         const rawEntries = response.data?.posts ?? [];
         const rawPosts = rawEntries.map((entry) => unwrapSearchEntryPost(entry)).filter(Boolean);
@@ -227,7 +231,10 @@ class BlueskyClient {
             const post = hydratedByUri.get(rawPost.uri) ?? rawPost;
             return normalizePostView(rawPost, post, profileByActor);
         });
-        return normalizedPosts;
+        return {
+            posts: normalizedPosts,
+            cursor: response.data?.cursor ?? null,
+        };
     }
     async hydratePostsByUri(uris) {
         const api = this.agent.api;

@@ -268,10 +268,18 @@
             </label>
           </div>
 
-          <button class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white dark:bg-slate-100 dark:text-slate-900" @click="search">
-            Search
+          <button
+            class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-70 dark:bg-slate-100 dark:text-slate-900"
+            :disabled="isSearching"
+            @click="search"
+          >
+            {{ isSearching ? 'Searching...' : 'Search' }}
           </button>
-          <div class="space-y-2">
+          <p v-if="isSearching" class="text-sm text-slate-600 dark:text-slate-300">Loading posts...</p>
+          <div
+            class="max-h-[70vh] space-y-2 overflow-y-auto pr-1"
+            @scroll.passive="onSearchResultsScroll"
+          >
             <article v-for="post in searchResults" :key="post.uri" class="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
               <div class="flex items-center gap-3">
                 <img
@@ -325,6 +333,15 @@
                 {{ tools.isPostInActiveFeed(post.uri) ? 'Remove from feed' : 'Add to feed' }}
               </button>
             </article>
+            <p v-if="isLoadingMore" class="py-2 text-center text-xs text-slate-500">
+              Loading more posts...
+            </p>
+            <p
+              v-else-if="searchResults.length && !hasMoreSearchResults"
+              class="py-2 text-center text-xs text-slate-500"
+            >
+              End of results
+            </p>
           </div>
         </section>
       </div>
@@ -343,6 +360,9 @@ const tools = useToolsStore();
 const query = ref('');
 const author = ref('');
 const searchResults = ref<CuratedPost[]>([]);
+const searchCursor = ref<string | null>(null);
+const hasMoreSearchResults = ref(false);
+const isLoadingMore = ref(false);
 const newFeedName = ref('');
 const renameValue = ref(tools.activeFeed?.name ?? '');
 const automation = ref<FeedAutomationConfig>(cloneAutomation());
@@ -350,6 +370,7 @@ const feedDescription = ref(tools.activeFeed?.description ?? '');
 const feedIconPreview = ref<string | undefined>(tools.activeFeed?.iconDataUrl);
 const isDetailsOpen = ref(false);
 const isAutomationOpen = ref(false);
+const isSearching = ref(false);
 const uiError = ref('');
 let hlsLoaderPromise: Promise<any | null> | null = null;
 const hlsInstances = new Map<HTMLVideoElement, { destroy: () => void }>();
@@ -372,7 +393,41 @@ onBeforeUnmount(() => {
 });
 
 async function search() {
-  searchResults.value = await tools.searchPosts(query.value, author.value || undefined);
+  isSearching.value = true;
+  try {
+    searchCursor.value = null;
+    const page = await tools.searchPosts(query.value, author.value || undefined);
+    searchResults.value = page.posts;
+    searchCursor.value = page.cursor;
+    hasMoreSearchResults.value = Boolean(page.cursor);
+  } finally {
+    isSearching.value = false;
+  }
+}
+
+async function loadMoreSearchResults() {
+  if (!hasMoreSearchResults.value || !searchCursor.value) return;
+  if (isSearching.value || isLoadingMore.value) return;
+  isLoadingMore.value = true;
+  try {
+    const page = await tools.searchPosts(query.value, author.value || undefined, searchCursor.value);
+    const seen = new Set(searchResults.value.map((post) => post.uri));
+    const next = page.posts.filter((post) => !seen.has(post.uri));
+    searchResults.value = [...searchResults.value, ...next];
+    searchCursor.value = page.cursor;
+    hasMoreSearchResults.value = Boolean(page.cursor);
+  } finally {
+    isLoadingMore.value = false;
+  }
+}
+
+function onSearchResultsScroll(event: Event) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+  if (remaining < 180) {
+    void loadMoreSearchResults();
+  }
 }
 
 function createFeed() {

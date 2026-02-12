@@ -137,8 +137,8 @@ export const useToolsStore = defineStore('tools', () => {
             loading.value = false;
         }
     }
-    async function searchPosts(query, author) {
-        return blueskyClient.searchPosts(query, author);
+    async function searchPosts(query, author, cursor) {
+        return blueskyClient.searchPosts(query, author, cursor);
     }
     function createFeed(name) {
         const trimmed = name.trim();
