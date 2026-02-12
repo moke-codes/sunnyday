@@ -123,6 +123,53 @@
             </div>
 
             <div class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+              <p class="text-sm font-medium">Feed details</p>
+              <label class="mt-2 block text-sm">
+                Description (optional)
+                <textarea
+                  v-model="feedDescription"
+                  rows="3"
+                  class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                  placeholder="Describe what this feed is about"
+                  @blur="saveFeedDetails"
+                />
+              </label>
+
+              <div class="mt-2 flex items-center gap-3">
+                <img
+                  v-if="feedIconPreview"
+                  :src="feedIconPreview"
+                  alt="Feed icon preview"
+                  class="h-12 w-12 rounded-lg border border-slate-200 object-cover dark:border-slate-700"
+                />
+                <div
+                  v-else
+                  class="flex h-12 w-12 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800"
+                >
+                  No icon
+                </div>
+                <div class="flex gap-2">
+                  <label class="cursor-pointer rounded-md border border-slate-300 px-3 py-2 text-xs dark:border-slate-700">
+                    Select icon
+                    <input
+                      class="hidden"
+                      type="file"
+                      accept="image/*"
+                      @change="onFeedIconSelected"
+                    />
+                  </label>
+                  <button
+                    class="rounded-md border border-slate-300 px-3 py-2 text-xs dark:border-slate-700"
+                    type="button"
+                    @click="clearFeedIcon"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
               <p class="text-sm font-medium">Automation</p>
               <label class="mt-2 inline-flex items-center gap-2 text-sm">
                 <input v-model="automation.enabled" type="checkbox" @change="saveAutomation" />
@@ -189,12 +236,16 @@ const searchResults = ref<CuratedPost[]>([]);
 const newFeedName = ref('');
 const renameValue = ref(tools.activeFeed?.name ?? '');
 const automation = ref<FeedAutomationConfig>(cloneAutomation());
+const feedDescription = ref(tools.activeFeed?.description ?? '');
+const feedIconPreview = ref<string | undefined>(tools.activeFeed?.iconDataUrl);
 const uiError = ref('');
 
 watch(
   () => tools.activeFeedId,
   () => {
     renameValue.value = tools.activeFeed?.name ?? '';
+    feedDescription.value = tools.activeFeed?.description ?? '';
+    feedIconPreview.value = tools.activeFeed?.iconDataUrl;
     automation.value = cloneAutomation();
   },
   { immediate: true },
@@ -262,6 +313,25 @@ function saveAutomation() {
   fallbackUpdateAutomation(tools.activeFeed.id, { ...automation.value });
 }
 
+function saveFeedDetails() {
+  if (!tools.activeFeed) return;
+  uiError.value = '';
+  const updateDetailsFn = (tools as any).updateFeedDetails as
+    | ((feedId: string, details: { description?: string; iconDataUrl?: string }) => void)
+    | undefined;
+  if (typeof updateDetailsFn === 'function') {
+    updateDetailsFn(tools.activeFeed.id, {
+      description: feedDescription.value,
+      iconDataUrl: feedIconPreview.value,
+    });
+    return;
+  }
+  fallbackUpdateDetails(tools.activeFeed.id, {
+    description: feedDescription.value,
+    iconDataUrl: feedIconPreview.value,
+  });
+}
+
 function togglePost(post: CuratedPost) {
   uiError.value = '';
   const isPostInActiveFeedFn = (tools as any).isPostInActiveFeed as
@@ -309,6 +379,10 @@ function fallbackCreateFeed(name: string) {
   const feed = {
     id: `feed-${Math.random().toString(36).slice(2, 10)}`,
     name: trimmed,
+    description: '',
+    publishedDescription: '',
+    iconDataUrl: undefined as string | undefined,
+    publishedIconDataUrl: undefined as string | undefined,
     automation: { enabled: false, mode: 'words', pattern: '', caseSensitive: false } as FeedAutomationConfig,
     publishedAutomation: {
       enabled: false,
@@ -366,6 +440,34 @@ function fallbackUpdateAutomation(feedId: string, nextAutomation: FeedAutomation
   );
 }
 
+function fallbackUpdateDetails(
+  feedId: string,
+  details: { description?: string; iconDataUrl?: string; clearIcon?: boolean },
+) {
+  if (!Array.isArray((tools as any).curatedFeeds)) return;
+  (tools as any).curatedFeeds = (tools as any).curatedFeeds.map((feed: any) => {
+    if (feed.id !== feedId) return feed;
+    const hasIconField = Object.prototype.hasOwnProperty.call(details, 'iconDataUrl');
+    const description = details.description ?? feed.description ?? '';
+    const iconDataUrl = details.clearIcon
+      ? undefined
+      : hasIconField
+        ? details.iconDataUrl
+        : feed.iconDataUrl;
+    const isDirty =
+      description !== (feed.publishedDescription ?? '') ||
+      (iconDataUrl || '') !== (feed.publishedIconDataUrl || '') ||
+      feed.isDirty;
+    return {
+      ...feed,
+      description,
+      iconDataUrl,
+      isDirty,
+      updatedAt: new Date().toISOString(),
+    };
+  });
+}
+
 function fallbackAddPost(post: CuratedPost) {
   if (!tools.activeFeed || !Array.isArray((tools as any).curatedFeeds)) return;
   if (tools.activeFeed.draftPosts.some((item) => item.uri === post.uri)) return;
@@ -416,9 +518,13 @@ function discardChanges() {
   const discardFn = (tools as any).discardActiveFeedChanges as (() => void) | undefined;
   if (typeof discardFn === 'function') {
     discardFn();
+    feedDescription.value = tools.activeFeed?.description ?? '';
+    feedIconPreview.value = tools.activeFeed?.iconDataUrl;
     return;
   }
   fallbackDiscard();
+  feedDescription.value = tools.activeFeed?.description ?? '';
+  feedIconPreview.value = tools.activeFeed?.iconDataUrl;
 }
 
 function fallbackDiscard() {
@@ -429,11 +535,38 @@ function fallbackDiscard() {
           ...feed,
           draftPosts: [...feed.publishedPosts],
           automation: { ...feed.publishedAutomation },
+          description: feed.publishedDescription ?? '',
+          iconDataUrl: feed.publishedIconDataUrl,
           isDirty: false,
           updatedAt: new Date().toISOString(),
         }
       : feed,
   );
+}
+
+function onFeedIconSelected(event: Event) {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) {
+    uiError.value = 'Please select an image file for the feed icon.';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    feedIconPreview.value = typeof reader.result === 'string' ? reader.result : undefined;
+    saveFeedDetails();
+  };
+  reader.onerror = () => {
+    uiError.value = 'Could not read selected image.';
+  };
+  reader.readAsDataURL(file);
+  target.value = '';
+}
+
+function clearFeedIcon() {
+  feedIconPreview.value = undefined;
+  saveFeedDetails();
 }
 
 function formatDateTime(value: string) {

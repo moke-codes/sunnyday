@@ -61,6 +61,10 @@ export interface FeedAutomationConfig {
 export interface CuratedFeed {
   id: string;
   name: string;
+  description: string;
+  publishedDescription: string;
+  iconDataUrl?: string;
+  publishedIconDataUrl?: string;
   automation: FeedAutomationConfig;
   publishedAutomation: FeedAutomationConfig;
   draftPosts: CuratedPost[];

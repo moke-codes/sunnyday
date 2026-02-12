@@ -17,6 +17,7 @@ export interface PublishFeedGeneratorPayload {
   feedId: string;
   displayName: string;
   description?: string;
+  iconDataUrl?: string;
 }
 
 const service = 'https://bsky.social';
@@ -276,6 +277,10 @@ class BlueskyClient {
     }
 
     const rkey = makeFeedRkey(payload.feedId);
+    const avatarBlob = payload.iconDataUrl
+      ? await this.uploadBlobFromDataUrl(payload.iconDataUrl)
+      : undefined;
+
     const response = await api.com.atproto.repo.putRecord({
       repo,
       collection: 'app.bsky.feed.generator',
@@ -284,6 +289,7 @@ class BlueskyClient {
         did: serviceDid,
         displayName: payload.displayName.trim(),
         description: payload.description?.trim() || undefined,
+        avatar: avatarBlob,
         createdAt: new Date().toISOString(),
       },
       validate: false,
@@ -304,6 +310,13 @@ class BlueskyClient {
       collection: 'app.bsky.feed.generator',
       rkey,
     });
+  }
+
+  private async uploadBlobFromDataUrl(dataUrl: string) {
+    const api: any = this.agent.api;
+    const blob = dataUrlToBlob(dataUrl);
+    const response = await api.com.atproto.repo.uploadBlob(blob);
+    return response.data?.blob;
   }
 
   private requireDid() {
@@ -409,4 +422,18 @@ export const blueskyClient = new BlueskyClient();
 function makeFeedRkey(feedId: string) {
   const normalized = feedId.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20) || 'feed';
   return `sunnyday-${normalized}`;
+}
+
+function dataUrlToBlob(dataUrl: string) {
+  const parts = dataUrl.split(',');
+  if (parts.length !== 2) {
+    throw new Error('Invalid icon data URL.');
+  }
+  const mime = parts[0].match(/data:(.*?);base64/)?.[1] || 'application/octet-stream';
+  const binary = atob(parts[1]);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mime });
 }

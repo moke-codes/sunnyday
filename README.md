@@ -8,6 +8,7 @@ Bluesky utility toolkit built with Vue 3 + TypeScript.
 - Convert existing list to starter pack
 - Convert starter pack to list (new or existing) by searching a user and choosing one of their starter packs
 - Curated feed workspace with multiple feed profiles (create/rename/delete)
+- Optional feed description and icon image per feed
 - Per-feed automation config (words or regex, with case-sensitivity)
 - Per-feed curated posts selected from search (add/remove)
 - Draft vs published workflow with `Publish` and `Discard changes`

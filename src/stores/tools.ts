@@ -176,6 +176,10 @@ export const useToolsStore = defineStore('tools', () => {
     const feed: CuratedFeed = {
       id: generateId(),
       name: trimmed,
+      description: '',
+      publishedDescription: '',
+      iconDataUrl: undefined,
+      publishedIconDataUrl: undefined,
       automation: { ...DEFAULT_AUTOMATION },
       publishedAutomation: { ...DEFAULT_AUTOMATION },
       draftPosts: [],
@@ -194,6 +198,33 @@ export const useToolsStore = defineStore('tools', () => {
   function setActiveFeed(feedId: string) {
     if (!curatedFeeds.value.some((feed) => feed.id === feedId)) return;
     activeFeedId.value = feedId;
+  }
+
+  function updateFeedDetails(
+    feedId: string,
+    details: { description?: string; iconDataUrl?: string; clearIcon?: boolean },
+  ) {
+    curatedFeeds.value = curatedFeeds.value.map((feed) => {
+      if (feed.id !== feedId) return feed;
+      const hasIconField = Object.prototype.hasOwnProperty.call(details, 'iconDataUrl');
+      const nextDescription =
+        details.description !== undefined ? details.description : feed.description;
+      const nextIcon = details.clearIcon
+        ? undefined
+        : hasIconField
+          ? details.iconDataUrl
+          : feed.iconDataUrl;
+      const updated: CuratedFeed = {
+        ...feed,
+        description: nextDescription,
+        iconDataUrl: nextIcon,
+        updatedAt: new Date().toISOString(),
+      };
+      return {
+        ...updated,
+        isDirty: calculateFeedDirty(updated),
+      };
+    });
   }
 
   function renameFeed(feedId: string, name: string) {
@@ -311,6 +342,8 @@ export const useToolsStore = defineStore('tools', () => {
         ...item,
         publishedPosts: [...item.draftPosts],
         publishedAutomation: { ...item.automation },
+        publishedDescription: item.description,
+        publishedIconDataUrl: item.iconDataUrl,
         isDirty: false,
         lastPublishedAt: publishedAt,
         lastPublishError: null,
@@ -331,7 +364,8 @@ export const useToolsStore = defineStore('tools', () => {
       const published = await blueskyClient.publishFeedGenerator({
         feedId: feed.id,
         displayName: feed.name,
-        description,
+        description: feed.description?.trim() || description,
+        iconDataUrl: feed.iconDataUrl,
       });
       const publishedAt = new Date().toISOString();
 
@@ -341,6 +375,8 @@ export const useToolsStore = defineStore('tools', () => {
           ...item,
           publishedPosts: [...item.draftPosts],
           publishedAutomation: { ...item.automation },
+          publishedDescription: item.description,
+          publishedIconDataUrl: item.iconDataUrl,
           isDirty: false,
           lastPublishedAt: publishedAt,
           blueskyFeedUri: published.uri,
@@ -377,6 +413,8 @@ export const useToolsStore = defineStore('tools', () => {
         ...item,
         draftPosts: [...item.publishedPosts],
         automation: { ...item.publishedAutomation },
+        description: item.publishedDescription,
+        iconDataUrl: item.publishedIconDataUrl,
         isDirty: false,
         updatedAt: new Date().toISOString(),
       };
@@ -408,6 +446,7 @@ export const useToolsStore = defineStore('tools', () => {
     createFeed,
     setActiveFeed,
     renameFeed,
+    updateFeedDetails,
     deleteFeed,
     updateFeedAutomation,
     isPostInActiveFeed,
@@ -443,6 +482,10 @@ function loadInitialFeeds() {
     {
       id: generateId(),
       name: 'Default Feed',
+      description: '',
+      publishedDescription: '',
+      iconDataUrl: undefined,
+      publishedIconDataUrl: undefined,
       automation: { ...DEFAULT_AUTOMATION },
       publishedAutomation: { ...DEFAULT_AUTOMATION },
       draftPosts: [],
@@ -463,6 +506,10 @@ function normalizeStoredFeed(feed: CuratedFeed & { posts?: CuratedPost[] }) {
   const normalized: CuratedFeed = {
     id: feed.id,
     name: feed.name,
+    description: feed.description ?? '',
+    publishedDescription: feed.publishedDescription ?? feed.description ?? '',
+    iconDataUrl: feed.iconDataUrl,
+    publishedIconDataUrl: feed.publishedIconDataUrl ?? feed.iconDataUrl,
     automation: feed.automation ?? { ...DEFAULT_AUTOMATION },
     publishedAutomation,
     draftPosts,
@@ -490,6 +537,8 @@ function normalizeStoredFeed(feed: CuratedFeed & { posts?: CuratedPost[] }) {
 }
 
 function calculateFeedDirty(feed: CuratedFeed) {
+  if ((feed.description || '') !== (feed.publishedDescription || '')) return true;
+  if ((feed.iconDataUrl || '') !== (feed.publishedIconDataUrl || '')) return true;
   if (!isAutomationEqual(feed.automation, feed.publishedAutomation)) return true;
   return !arePostListsEqual(feed.draftPosts, feed.publishedPosts);
 }
