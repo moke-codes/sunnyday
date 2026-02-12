@@ -119,6 +119,15 @@ server {
   }
 
   location /internal/ {
+    # CORS: handle preflight so browser allows cross-origin requests from Sunnyday
+    if (\$request_method = 'OPTIONS') {
+      add_header 'Access-Control-Allow-Origin' '*';
+      add_header 'Access-Control-Allow-Methods' 'POST, DELETE, OPTIONS';
+      add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type';
+      add_header 'Access-Control-Max-Age' 86400;
+      add_header 'Content-Length' 0;
+      return 204;
+    }
     proxy_pass ${backend};
     proxy_http_version 1.1;
     proxy_set_header Host \$host;
